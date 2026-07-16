@@ -140,6 +140,18 @@ export default class MineManager {
     return null;
   }
 
+  /**
+   * Shows/hides all untriggered mines (jammer flicker effect — enemy mines
+   * are concealed along with other enemy units while jammed).
+   */
+  setVisibility(visible) {
+    for (const mine of this.mines) {
+      if (mine.triggered) continue;
+      mine.solid.visible = visible;
+      mine.wire.visible  = visible;
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------

@@ -42,6 +42,9 @@ export default function App() {
 
     gm.start();
 
+    // Dev-only debug handle for console inspection
+    if (import.meta.env.DEV) window.__gm = gm;
+
     managerRef.current           = gm;
     playerTankRef.current        = gm.playerTank;
     enemyTankRef.current         = gm.enemyTank;

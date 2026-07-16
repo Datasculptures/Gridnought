@@ -15,6 +15,7 @@ import InfantryUnit from '../entities/InfantryUnit.js';
 import TruckVehicle  from '../entities/TruckVehicle.js';
 import APCVehicle    from '../entities/APCVehicle.js';
 import JammerTruck   from '../entities/JammerTruck.js';
+import EntityManager from '../entities/EntityManager.js';
 import Drone from '../entities/Drone.js';
 import MineManager from '../entities/MineManager.js';
 
@@ -42,10 +43,7 @@ export class GameManager {
     this.collisionManager     = null;
     this.obstacleManager      = null;
     this.effectsManager       = null;
-    this.infantry             = [];  // InfantryUnit[]
-    this.trucks               = [];  // TruckVehicle[]
-    this.apcs                 = [];  // APCVehicle[]
-    this.jammers              = [];  // JammerTruck[]
+    this.entityManager        = null; // unified registry: infantry, trucks, APCs, jammers, ...
     this.drone                = null;
 
     // Jammer effect state
@@ -166,13 +164,9 @@ export class GameManager {
     this.mineManager.generate(this.terrain, this.terrain.seed);
     this.aiController.mineManager = this.mineManager;
 
-    // Spawn infantry (they wait idle until the round starts)
-    this._spawnInfantry();
-
-    // Spawn trucks, APCs, and jammers
-    this._spawnTrucks();
-    this._spawnAPCs();
-    this._spawnJammers();
+    // Unified entity registry + initial spawns (idle until the round starts)
+    this.entityManager = new EntityManager();
+    this._spawnEntities();
 
     // Wire vehicle-blocking provider into the movement validator
     this._updateMobileEntityProvider();
@@ -211,15 +205,8 @@ export class GameManager {
       this.playerTank.update(delta);
       this.enemyTank.update(delta);
 
-      // Update infantry and check projectile hits against them
-      for (const inf of this.infantry) {
-        inf.update(delta, this.playerTank, this.projectileManager);
-      }
-
-      // Update trucks, APCs, and jammers
-      for (const truck   of this.trucks)   truck.update(delta);
-      for (const apc     of this.apcs)     apc.update(delta);
-      for (const jammer  of this.jammers)  jammer.update(delta);
+      // All registered entities (infantry, trucks, APCs, jammers, ...)
+      this.entityManager.update(delta, this._entityCtx());
 
       // Jammer flicker effect
       this._updateJammerEffect(delta);
@@ -227,11 +214,9 @@ export class GameManager {
       this.projectileManager.update(delta);
       this.collisionManager.update(delta);
 
-      // Infantry hit detection — runs after CollisionManager so dead projectiles are skipped
-      this._checkInfantryHits();
-
-      // Vehicle hit detection
-      this._checkVehicleHits();
+      // Entity hit detection — runs after CollisionManager so projectiles
+      // stopped by obstacles/tanks are already dead and skipped
+      this.entityManager.checkProjectileHits(this.projectileManager.getActiveProjectiles());
 
       // Infantry crush — player tank running over infantry kills them
       this._checkInfantryCrush();
@@ -258,12 +243,7 @@ export class GameManager {
       // Animate destruction effects on destroyed tanks + any lingering effects
       if (!this.playerTank.isAlive) this.playerTank.update(delta);
       if (!this.enemyTank.isAlive) this.enemyTank.update(delta);
-      for (const inf of this.infantry) {
-        if (!inf.isAlive) inf.update(delta, this.playerTank, this.projectileManager);
-      }
-      for (const truck   of this.trucks)   { if (!truck.isAlive)   truck.update(delta);   }
-      for (const apc     of this.apcs)     { if (!apc.isAlive)     apc.update(delta);     }
-      for (const jammer  of this.jammers)  { if (!jammer.isAlive)  jammer.update(delta);  }
+      this.entityManager.update(delta, this._entityCtx(), { deadOnly: true });
       this._setEnemyVisibility(true); // restore full visibility at round end
       this.effectsManager.update(delta);
     }
@@ -358,40 +338,17 @@ export class GameManager {
   }
 
   // ---------------------------------------------------------------------------
-  // Infantry helpers
+  // Entity helpers
   // ---------------------------------------------------------------------------
 
-  /**
-   * Checks all live projectiles against all live infantry.
-   * Runs after CollisionManager so projectiles killed by obstacles/tanks are skipped.
-   */
-  _checkInfantryHits() {
-    const projectiles = this.projectileManager.getActiveProjectiles();
-    for (const proj of projectiles) {
-      if (!proj.isAlive) continue;
-      const pos = proj.position;
-      if (!pos) continue;
-
-      for (const inf of this.infantry) {
-        if (!inf.isAlive) continue;
-        if (proj.owner === inf) continue; // no self-hits
-        const hc = inf.getHitCenter();
-        const dx = pos.x - hc.x;
-        const dy = pos.y - hc.y;
-        const dz = pos.z - hc.z;
-        if (Math.sqrt(dx * dx + dy * dy + dz * dz) <= INFANTRY.hitRadius) {
-          proj.kill();
-          inf.takeHit(null, proj.weaponType?.damage ?? 1);
-          break;
-        }
-      }
-    }
+  /** Shared context passed to every entity update. */
+  _entityCtx() {
+    return {
+      playerTank:        this.playerTank,
+      projectileManager: this.projectileManager,
+    };
   }
 
-  /**
-   * Checks whether the player tank has driven over a mine.
-   * A triggered mine deals 1 HP to every armor zone.
-   */
   /**
    * Checks all live projectiles against the drone.
    */
@@ -427,8 +384,7 @@ export class GameManager {
     const tx = this.playerTank.position.x;
     const tz = this.playerTank.position.z;
     const crushR2 = 2.0 * 2.0; // (tank half-width + infantry hit radius)²
-    for (const inf of this.infantry) {
-      if (!inf.isAlive) continue;
+    for (const inf of this.entityManager.alive(e => e.kind === 'infantry')) {
       const dx = inf.position.x - tx;
       const dz = inf.position.z - tz;
       if (dx * dx + dz * dz <= crushR2) {
@@ -438,7 +394,7 @@ export class GameManager {
   }
 
   // ---------------------------------------------------------------------------
-  // Vehicle helpers (Trucks + APCs)
+  // Entity spawning
   // ---------------------------------------------------------------------------
 
   _makeVehicleSpawnPos(rng, minDist) {
@@ -462,62 +418,47 @@ export class GameManager {
     return { x, z };
   }
 
-  _spawnTrucks() {
-    for (const t of this.trucks) t.dispose();
-    this.trucks = [];
-    for (let i = 0; i < TRUCK.count; i++) {
-      const pos = this._makeVehicleSpawnPos(null, TRUCK.minSpawnDist);
-      this.trucks.push(new TruckVehicle(this.scene, {
-        position:          pos,
-        terrain:           this.terrain,
-        movementValidator: this.movementValidator,
-        mineManager:       this.mineManager,
-      }));
-    }
-  }
-
-  _spawnAPCs() {
-    for (const a of this.apcs) a.dispose();
-    this.apcs = [];
-    for (let i = 0; i < APC.count; i++) {
-      const pos = this._makeVehicleSpawnPos(null, APC.minSpawnDist);
-      this.apcs.push(new APCVehicle(this.scene, {
-        position:          pos,
-        terrain:           this.terrain,
-        movementValidator: this.movementValidator,
-        mineManager:       this.mineManager,
-        onSpawnInfantry:   (inf) => this.infantry.push(inf),
-      }));
-    }
-  }
-
-  _resetTrucks() {
-    // Dispose and respawn trucks on new terrain
-    this._spawnTrucks();
-  }
-
-  _resetAPCs() {
-    this._spawnAPCs();
-  }
-
-  _spawnJammers() {
-    for (const j of this.jammers) j.dispose();
-    this.jammers = [];
-    for (let i = 0; i < JAMMER.count; i++) {
-      const pos = this._makeVehicleSpawnPos(null, JAMMER.minSpawnDist);
-      this.jammers.push(new JammerTruck(this.scene, {
-        position:          pos,
-        terrain:           this.terrain,
-        movementValidator: this.movementValidator,
-        mineManager:       this.mineManager,
-      }));
-    }
-  }
-
-  _resetJammers() {
-    this._spawnJammers();
-    this._jamVisible = true;
+  /**
+   * Clears the registry and spawns a fresh set of every entity type.
+   * Entities constructed here pick up the current terrain / validator /
+   * mineManager references, so this is also the "reset for new terrain" path.
+   */
+  _spawnEntities() {
+    this.entityManager.clear();
+    this._jamVisible      = true;
     this._jamFlickerTimer = 0;
+
+    const base = () => ({
+      terrain:           this.terrain,
+      movementValidator: this.movementValidator,
+      mineManager:       this.mineManager,
+    });
+
+    for (let i = 0; i < INFANTRY.count; i++) {
+      this.entityManager.add(new InfantryUnit(this.scene, {
+        position: this._makeVehicleSpawnPos(null, INFANTRY.minSpawnDist),
+        ...base(),
+      }));
+    }
+    for (let i = 0; i < TRUCK.count; i++) {
+      this.entityManager.add(new TruckVehicle(this.scene, {
+        position: this._makeVehicleSpawnPos(null, TRUCK.minSpawnDist),
+        ...base(),
+      }));
+    }
+    for (let i = 0; i < APC.count; i++) {
+      this.entityManager.add(new APCVehicle(this.scene, {
+        position:        this._makeVehicleSpawnPos(null, APC.minSpawnDist),
+        onSpawnInfantry: (inf) => this.entityManager.add(inf),
+        ...base(),
+      }));
+    }
+    for (let i = 0; i < JAMMER.count; i++) {
+      this.entityManager.add(new JammerTruck(this.scene, {
+        position: this._makeVehicleSpawnPos(null, JAMMER.minSpawnDist),
+        ...base(),
+      }));
+    }
   }
 
   /**
@@ -527,7 +468,9 @@ export class GameManager {
   _updateJammerEffect(delta) {
     const px = this.playerTank.position.x;
     const pz = this.playerTank.position.z;
-    const jamming = this.jammers.some(j => j.isJammingPosition(px, pz));
+    const jamming = this.entityManager
+      .alive(e => e.kind === 'jammer')
+      .some(j => j.isJammingPosition(px, pz));
 
     if (jamming) {
       this._jamFlickerTimer -= delta;
@@ -545,44 +488,14 @@ export class GameManager {
     }
   }
 
-  /** Show/hide all enemy entities (tank, infantry, trucks, APCs, jammers). */
-  _setEnemyVisibility(visible) {
-    if (this.enemyTank?.group)   this.enemyTank.group.visible = visible;
-    for (const inf    of this.infantry) { if (inf.group    && inf.isAlive)    inf.group.visible    = visible; }
-    for (const truck  of this.trucks)   { if (truck.group  && truck.isAlive)  truck.group.visible  = visible; }
-    for (const apc    of this.apcs)     { if (apc.group    && apc.isAlive)    apc.group.visible    = visible; }
-    for (const jammer of this.jammers)  { if (jammer.group && jammer.isAlive) jammer.group.visible = visible; }
-  }
-
   /**
-   * Checks all live projectiles against trucks, APCs, and jammers.
+   * Show/hide all ENEMY-faction entities (tank, infantry, APCs, jammers)
+   * and enemy mines. Neutral entities (grey trucks) stay visible.
    */
-  _checkVehicleHits() {
-    const projectiles = this.projectileManager.getActiveProjectiles();
-    for (const proj of projectiles) {
-      if (!proj.isAlive) continue;
-      const pos = proj.position;
-      if (!pos) continue;
-
-      let hitVehicle = false;
-      for (let vi = 0; vi < 3 && !hitVehicle; vi++) {
-        const list  = vi === 0 ? this.trucks : vi === 1 ? this.apcs : this.jammers;
-        const hitR  = vi === 0 ? TRUCK.hitRadius : vi === 1 ? APC.hitRadius : JAMMER.hitRadius;
-        for (const vehicle of list) {
-          if (!vehicle.isAlive) continue;
-          const hc = vehicle.getHitCenter();
-          const dx = pos.x - hc.x;
-          const dy = pos.y - hc.y;
-          const dz = pos.z - hc.z;
-          if (Math.sqrt(dx * dx + dy * dy + dz * dz) <= hitR) {
-            proj.kill();
-            vehicle.takeHit(proj.weaponType?.damage ?? 1);
-            hitVehicle = true;
-            break;
-          }
-        }
-      }
-    }
+  _setEnemyVisibility(visible) {
+    if (this.enemyTank?.group) this.enemyTank.group.visible = visible;
+    this.entityManager.setFactionVisibility('enemy', visible);
+    if (this.mineManager) this.mineManager.setVisibility(visible);
   }
 
   _checkMineTrigger() {
@@ -614,80 +527,6 @@ export class GameManager {
     if (destroyed) {
       this.pendingRoundResult = 'defeat';
       this.roundEndDelayTimer = ROUND.resultDisplayDelay;
-    }
-  }
-
-  /**
-   * Creates INFANTRY.count infantry units at random map positions,
-   * kept at least INFANTRY.minSpawnDist away from the player spawn.
-   */
-  _spawnInfantry() {
-    // Dispose any existing infantry first
-    for (const inf of this.infantry) inf.dispose();
-    this.infantry = [];
-
-    const spawnX   = SPAWN.player.x;
-    const spawnZ   = SPAWN.player.z;
-    const minD2    = INFANTRY.minSpawnDist * INFANTRY.minSpawnDist;
-    const halfW    = WORLD_SIZE * 0.4; // keep 20% margin from edges
-
-    for (let i = 0; i < INFANTRY.count; i++) {
-      let x, z, attempts = 0;
-      do {
-        x = (Math.random() - 0.5) * halfW * 2;
-        z = (Math.random() - 0.5) * halfW * 2;
-        attempts++;
-      } while (((x - spawnX) * (x - spawnX) + (z - spawnZ) * (z - spawnZ)) < minD2 && attempts < 25);
-
-      this.infantry.push(new InfantryUnit(this.scene, {
-        position: { x, z },
-        terrain:  this.terrain,
-        movementValidator: this.movementValidator,
-        mineManager: this.mineManager,
-      }));
-    }
-  }
-
-  /**
-   * Respawns infantry at new random positions for a new round
-   * (reuses existing InfantryUnit instances if available, otherwise spawns fresh).
-   */
-  _resetInfantry() {
-    if (this.infantry.length === 0) {
-      this._spawnInfantry();
-      return;
-    }
-    const spawnX = SPAWN.player.x;
-    const spawnZ = SPAWN.player.z;
-    const minD2  = INFANTRY.minSpawnDist * INFANTRY.minSpawnDist;
-    const halfW  = WORLD_SIZE * 0.4;
-
-    // Make sure we have the right count
-    while (this.infantry.length < INFANTRY.count) {
-      this.infantry.push(new InfantryUnit(this.scene, {
-        position: { x: 0, z: 0 },
-        terrain:  this.terrain,
-        movementValidator: this.movementValidator,
-        mineManager: this.mineManager,
-      }));
-    }
-    while (this.infantry.length > INFANTRY.count) {
-      this.infantry.pop().dispose();
-    }
-
-    for (const inf of this.infantry) {
-      let x, z, attempts = 0;
-      do {
-        x = (Math.random() - 0.5) * halfW * 2;
-        z = (Math.random() - 0.5) * halfW * 2;
-        attempts++;
-      } while (((x - spawnX) * (x - spawnX) + (z - spawnZ) * (z - spawnZ)) < minD2 && attempts < 25);
-
-      // Update terrain/validator/mineManager in case regenerateTerrain was called
-      inf.terrain           = this.terrain;
-      inf.movementValidator = this.movementValidator;
-      inf.mineManager       = this.mineManager;
-      inf.reset({ x, z });
     }
   }
 
@@ -795,13 +634,9 @@ export class GameManager {
     // Regenerate mines on the new terrain
     this.mineManager.generate(this.terrain, this.terrain.seed);
 
-    // Respawn infantry on the new terrain (picks up new mineManager automatically)
-    this._resetInfantry();
-
-    // Respawn vehicles on the new terrain
-    this._resetTrucks();
-    this._resetAPCs();
-    this._resetJammers();
+    // Respawn all entities on the new terrain (fresh instances pick up the
+    // new terrain / validator / mineManager references)
+    this._spawnEntities();
 
     // Re-wire vehicle blocking provider to the new movementValidator instance
     this._updateMobileEntityProvider();
@@ -814,7 +649,7 @@ export class GameManager {
   _updateMobileEntityProvider() {
     this.movementValidator.setMobileEntityProvider(() => [
       this.playerTank, this.enemyTank,
-      ...this.trucks, ...this.apcs, ...this.jammers,
+      ...this.entityManager.getBlockers(),
     ]);
   }
 
@@ -841,19 +676,11 @@ export class GameManager {
       this.terrain,
       this.drone,
       this.mineManager,
+      this.entityManager,
     ];
     for (const system of systems) {
       if (system) system.dispose();
     }
-
-    for (const inf    of this.infantry) inf.dispose();
-    for (const truck  of this.trucks)   truck.dispose();
-    for (const apc    of this.apcs)     apc.dispose();
-    for (const jammer of this.jammers)  jammer.dispose();
-    this.infantry = [];
-    this.trucks   = [];
-    this.apcs     = [];
-    this.jammers  = [];
 
     if (this.movementValidator) {
       this.movementValidator.dispose();
@@ -888,8 +715,6 @@ export class GameManager {
     this.effectsManager       = null;
     this.drone                = null;
     this.mineManager          = null;
-    this.trucks               = [];
-    this.apcs                 = [];
-    this.jammers              = [];
+    this.entityManager        = null;
   }
 }

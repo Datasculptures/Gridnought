@@ -3,4 +3,11 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+
+  // Tauri expects a fixed dev server port and manages its own console output
+  clearScreen: false,
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
 });

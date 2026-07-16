@@ -1,0 +1,4 @@
+# Keep multi-GB Rust build artifacts out of the OneDrive-synced project folder.
+# Machine-specific path — adjust if the project moves to another machine.
+[build]
+target-dir = "C:/Users/SeanP/.wirezone-build"

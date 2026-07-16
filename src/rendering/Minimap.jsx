@@ -160,62 +160,58 @@ export default function Minimap({
         }
       }
 
-      // Infantry — only if player or drone has LOS
-      if (gm?.infantry) {
-        for (const inf of gm.infantry) {
-          if (!inf.isAlive) continue;
-          const iy = inf.position.y + INFANTRY.hitYOffset;
-          if (!hasLOS(om, player, drone, inf.position.x, iy, inf.position.z)) continue;
-          const px = worldToMap(inf.position.x, size);
-          const py = worldToMap(inf.position.z, size);
-          ctx.fillStyle = MINIMAP.enemyColor;
-          ctx.beginPath();
-          ctx.arc(px, py, MINIMAP.tankRadius * 0.6, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
+      // Registered entities — per-kind styling
+      if (gm?.entityManager) {
+        for (const e of gm.entityManager.entities) {
+          if (!e.isAlive) continue;
 
-      // Trucks — grey dots (always visible, soft targets)
-      if (gm?.trucks) {
-        for (const truck of gm.trucks) {
-          if (!truck.isAlive) continue;
-          const px = worldToMap(truck.position.x, size);
-          const py = worldToMap(truck.position.z, size);
-          ctx.fillStyle = '#888888';
-          ctx.beginPath();
-          ctx.arc(px, py, MINIMAP.tankRadius * 0.7, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
+          // Infantry only show when the player or drone has line of sight
+          if (e.kind === 'infantry') {
+            const iy = e.position.y + INFANTRY.hitYOffset;
+            if (!hasLOS(om, player, drone, e.position.x, iy, e.position.z)) continue;
+          }
 
-      // APCs — light-red dots (always visible)
-      if (gm?.apcs) {
-        for (const apc of gm.apcs) {
-          if (!apc.isAlive) continue;
-          const px = worldToMap(apc.position.x, size);
-          const py = worldToMap(apc.position.z, size);
-          ctx.fillStyle = '#ff6666';
-          ctx.beginPath();
-          ctx.arc(px, py, MINIMAP.tankRadius * 0.8, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
+          const px = worldToMap(e.position.x, size);
+          const py = worldToMap(e.position.z, size);
 
-      // Jammer trucks — bright red with a small ring to distinguish from APCs
-      if (gm?.jammers) {
-        for (const jammer of gm.jammers) {
-          if (!jammer.isAlive) continue;
-          const px = worldToMap(jammer.position.x, size);
-          const py = worldToMap(jammer.position.z, size);
-          ctx.strokeStyle = '#ff2222';
-          ctx.lineWidth   = 1.5;
-          ctx.beginPath();
-          ctx.arc(px, py, MINIMAP.tankRadius * 0.8, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.fillStyle = '#ff2222';
-          ctx.beginPath();
-          ctx.arc(px, py, MINIMAP.tankRadius * 0.35, 0, Math.PI * 2);
-          ctx.fill();
+          switch (e.kind) {
+            case 'infantry':
+              ctx.fillStyle = MINIMAP.enemyColor;
+              ctx.beginPath();
+              ctx.arc(px, py, MINIMAP.tankRadius * 0.6, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+            case 'truck':
+              ctx.fillStyle = '#888888';
+              ctx.beginPath();
+              ctx.arc(px, py, MINIMAP.tankRadius * 0.7, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+            case 'apc':
+              ctx.fillStyle = '#ff6666';
+              ctx.beginPath();
+              ctx.arc(px, py, MINIMAP.tankRadius * 0.8, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+            case 'jammer':
+              // Bright red with a ring to distinguish from APCs
+              ctx.strokeStyle = '#ff2222';
+              ctx.lineWidth   = 1.5;
+              ctx.beginPath();
+              ctx.arc(px, py, MINIMAP.tankRadius * 0.8, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.fillStyle = '#ff2222';
+              ctx.beginPath();
+              ctx.arc(px, py, MINIMAP.tankRadius * 0.35, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+            default:
+              // Unknown kinds: neutral grey dot so new units are still visible
+              ctx.fillStyle = '#aaaaaa';
+              ctx.beginPath();
+              ctx.arc(px, py, MINIMAP.tankRadius * 0.6, 0, Math.PI * 2);
+              ctx.fill();
+          }
         }
       }
 

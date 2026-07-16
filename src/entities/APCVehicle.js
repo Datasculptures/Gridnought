@@ -23,6 +23,13 @@ export default class APCVehicle {
     this.isArmoured  = false;
     this._hp         = APC.hp;
 
+    // Unified entity metadata (EntityManager contract)
+    this.kind           = 'apc';
+    this.faction        = 'enemy';
+    this.hitRadius      = APC.hitRadius;
+    this.scoreValue     = 5;
+    this.blocksMovement = true;
+
     // Waypoint navigation
     this._waypoint     = new THREE.Vector3();
     this._waypointTime = 0;
@@ -139,7 +146,7 @@ export default class APCVehicle {
   // Update
   // ---------------------------------------------------------------------------
 
-  update(delta) {
+  update(delta, _ctx) {
     if (!this.isAlive) {
       if (this.destructionEffect && !this.destructionEffect.isComplete) {
         this.destructionEffect.update(delta);

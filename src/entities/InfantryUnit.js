@@ -31,6 +31,13 @@ export default class InfantryUnit {
     this.isDestroyed = false;
     this.isArmoured  = false;
 
+    // Unified entity metadata (EntityManager contract)
+    this.kind           = 'infantry';
+    this.faction        = 'enemy';
+    this.hitRadius      = INFANTRY.hitRadius;
+    this.scoreValue     = 1;
+    this.blocksMovement = false;
+
     // Fire state
     this._fireCooldown = INFANTRY.fireCooldown; // don't fire on first frame
 
@@ -86,17 +93,17 @@ export default class InfantryUnit {
   // ---------------------------------------------------------------------------
 
   /**
-   * @param {number}      delta
-   * @param {object}      playerTank        - reference for targeting
-   * @param {object}      projectileManager - for spawning MG rounds
+   * @param {number} delta
+   * @param {{ playerTank: object, projectileManager: object }} ctx
    */
-  update(delta, playerTank, projectileManager) {
+  update(delta, ctx) {
     if (!this.isAlive) {
       if (this.destructionEffect && !this.destructionEffect.isComplete) {
         this.destructionEffect.update(delta);
       }
       return;
     }
+    const { playerTank, projectileManager } = ctx;
 
     const dx   = playerTank.position.x - this.position.x;
     const dz   = playerTank.position.z - this.position.z;
@@ -203,8 +210,8 @@ export default class InfantryUnit {
   }
 
   /** One hit kills infantry (no armour — any damage is fatal). */
-  takeHit(zone = null, damage = 1) {
-    if (!this.isAlive) return;
+  takeHit(damage = 1) {
+    if (!this.isAlive) return false;
     this.isAlive     = false;
     this.isDestroyed = true;
     if (this.group) this.group.visible = false;
@@ -213,6 +220,7 @@ export default class InfantryUnit {
       this.position.clone(),
       COLORS.enemyTank,
     );
+    return true;
   }
 
   /** Repositions infantry for a new round. */

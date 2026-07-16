@@ -23,6 +23,13 @@ export default class JammerTruck {
     this.isDestroyed = false;
     this.isArmoured  = false;
 
+    // Unified entity metadata (EntityManager contract)
+    this.kind           = 'jammer';
+    this.faction        = 'enemy';
+    this.hitRadius      = JAMMER.hitRadius;
+    this.scoreValue     = 5;
+    this.blocksMovement = true;
+
     // Waypoint navigation
     this._waypoint     = new THREE.Vector3();
     this._waypointTime = 0;
@@ -169,7 +176,7 @@ export default class JammerTruck {
   // Update
   // ---------------------------------------------------------------------------
 
-  update(delta) {
+  update(delta, _ctx) {
     if (!this.isAlive) {
       if (this.destructionEffect && !this.destructionEffect.isComplete) {
         this.destructionEffect.update(delta);
