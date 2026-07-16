@@ -1,5 +1,7 @@
 import { WORLD_SIZE, CELL_SIZE, TANK, COLLISION } from '../utils/constants.js';
 
+const BLOCK_R = COLLISION.vehicleBlockRadius; // convenience alias
+
 /**
  * Centralised movement validation. Both the player tank and AI tanks use this
  * to determine whether a proposed move is legal before applying it.
@@ -16,8 +18,39 @@ export default class MovementValidator {
    * @param {object|null} obstacleManager - ObstacleManager; checked in canMoveTo.
    */
   constructor(terrain, obstacleManager) {
-    this.terrain         = terrain;
-    this.obstacleManager = obstacleManager || null;
+    this.terrain              = terrain;
+    this.obstacleManager      = obstacleManager || null;
+    this._getMobileEntities   = null; // injected by GameManager
+  }
+
+  /**
+   * Provides a function that returns the current list of mobile entities
+   * (tanks + vehicles) to use for vehicle-blocking checks.
+   * @param {() => object[]} fn
+   */
+  setMobileEntityProvider(fn) {
+    this._getMobileEntities = fn;
+  }
+
+  /**
+   * Returns true if placing `caller` at (x, z) would overlap another mobile entity.
+   * Skips dead entities and the caller itself.
+   * @param {number} x
+   * @param {number} z
+   * @param {object|null} caller - The entity attempting to move (excluded from check).
+   */
+  isVehicleBlocked(x, z, caller = null) {
+    if (!this._getMobileEntities) return false;
+    const entities = this._getMobileEntities();
+    const r2 = BLOCK_R * BLOCK_R;
+    for (const e of entities) {
+      if (e === caller)   continue;
+      if (!e.isAlive)     continue;
+      const dx = x - e.position.x;
+      const dz = z - e.position.z;
+      if (dx * dx + dz * dz < r2) return true;
+    }
+    return false;
   }
 
   /**
@@ -103,7 +136,8 @@ export default class MovementValidator {
   }
 
   dispose() {
-    this.terrain         = null;
-    this.obstacleManager = null;
+    this.terrain            = null;
+    this.obstacleManager    = null;
+    this._getMobileEntities = null;
   }
 }

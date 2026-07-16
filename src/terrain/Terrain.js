@@ -99,7 +99,7 @@ export default class Terrain {
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(buf, 3));
-    this._gridLineMat = new THREE.LineBasicMaterial({ color: COLORS.terrain });
+    this._gridLineMat = new THREE.LineBasicMaterial({ color: COLORS.terrain, transparent: true, opacity: 0.35 });
     return new THREE.LineSegments(geo, this._gridLineMat);
   }
 

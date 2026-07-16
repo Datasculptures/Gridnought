@@ -30,7 +30,7 @@ export const WeaponType = Object.freeze({
   HEAVY_CANNON: Object.freeze({
     id:          'HEAVY_CANNON',
     label:       'Heavy Cannon',
-    range:       24,
+    range:       null,   // no range cap — killed by terrain hit, map edge, or maxFlightTime
     damage:      2,
     penetrating: true,
   }),

@@ -1,7 +1,7 @@
-// Grid — 50% larger than original (48 → 72)
-export const GRID_SIZE = 72;
+// Grid — 50% larger again (72 → 108)
+export const GRID_SIZE = 108;
 export const CELL_SIZE = 2;
-export const WORLD_SIZE = GRID_SIZE * CELL_SIZE; // 144
+export const WORLD_SIZE = GRID_SIZE * CELL_SIZE; // 216
 
 // Max delta time — clamp to this to prevent physics explosion on tab resume
 export const MAX_DELTA = 0.1;
@@ -78,9 +78,10 @@ export const TANK = {
     yOffset: 0.3,             // barrel centre relative to turret pivot origin
     zOffset: 0.9,             // barrel starts at front of turret (turret.depth/2)
     defaultElevation: 0.3,    // ~17° starting angle (radians)
-    minElevation: 0.02,       // ~1° — nearly flat
+    minElevation: -0.35,      // ~-20° — allows aiming at ground targets
     maxElevation: 1.25,       // ~72° — high arc
     elevationSpeed: 1.2,      // radians per second
+    topOffset: 1.1,           // barrel pivot Y above turret pivot origin (sits on turret top)
   },
 
   // Terrain interaction
@@ -115,9 +116,9 @@ export const HUD = {
 };
 
 export const AI = {
-  // Detection (scaled ~1.5× for larger map)
-  detectionRange: 108,
-  loseTargetRange: 140,
+  // Detection (scaled for 216-unit world)
+  detectionRange: 130,
+  loseTargetRange: 175,
 
   // State timings
   patrolPauseDuration: 1.5,
@@ -125,7 +126,7 @@ export const AI = {
   reactionDelay: 0.3,
 
   // Patrol
-  patrolRadius: 45,
+  patrolRadius: 68,
   patrolWaypointCount: 4,
 
   // Pursuit
@@ -146,7 +147,7 @@ export const AI = {
 };
 
 export const OBSTACLES = {
-  count: { min: 12, max: 22 },
+  count: { min: 18, max: 33 },
   minDistanceFromSpawn: 20,
   minDistanceBetween: 6,
   maxSlopeForPlacement: 20,
@@ -174,10 +175,11 @@ export const OBSTACLES = {
 };
 
 export const COLLISION = {
-  tankHitRadius:      2.0,
-  tankHitYOffset:     0.8,
-  infantryHitRadius:  0.8,
-  infantryHitYOffset: 0.4,
+  tankHitRadius:       2.0,
+  tankHitYOffset:      0.8,
+  infantryHitRadius:   0.8,
+  infantryHitYOffset:  0.4,
+  vehicleBlockRadius:  4.0,  // min centre-to-centre distance between any two mobile entities
   sweepSteps: 3,
 };
 
@@ -196,7 +198,7 @@ export const MACHINEGUN = {
 
 // Enemy infantry units
 export const INFANTRY = {
-  count:           2,     // per round
+  count:           0,     // per round (infantry spawn via APC only)
   moveSpeed:        6,    // half of tank moveSpeed
   turnSpeed:        3.5,
   sightRange:      55,    // detect player beyond this → patrol
@@ -205,6 +207,56 @@ export const INFANTRY = {
   hitRadius:        0.8,  // same as COLLISION.infantryHitRadius
   hitYOffset:       0.4,
   minSpawnDist:    28,    // minimum distance from player spawn (scaled for larger map)
+};
+
+// Truck — grey wandering vehicle, 1 HP, no weapons
+export const TRUCK = {
+  count:           2,     // per round
+  moveSpeed:       8,
+  turnSpeed:       2.0,
+  hp:              1,
+  color:           0x888888,
+  hitRadius:       1.8,
+  hitYOffset:      0.5,
+  minSpawnDist:    24,
+  // Geometry
+  hull: { width: 2.2, height: 1.2, depth: 3.8 },
+  cab:  { width: 2.0, height: 1.0, depth: 1.6 },
+};
+
+// APC — light-red wandering vehicle, 2 HP, spawns infantry when stopped
+export const APC = {
+  count:                1,   // per round
+  moveSpeed:            7,
+  turnSpeed:            1.8,
+  hp:                   2,
+  color:                0xff6666,
+  hitRadius:            2.0,
+  hitYOffset:           0.6,
+  minSpawnDist:         24,
+  infantrySpawnInterval: 60, // seconds between infantry drops
+  maxInfantrySpawns:    3,   // stops spawning after this many
+  // Geometry
+  hull:    { width: 2.6, height: 1.4, depth: 4.2 },
+  turret:  { width: 1.6, height: 0.6, depth: 1.6 },
+};
+
+// Jammer Truck — red, 1 HP, no weapons; jams enemy visibility when close to player
+export const JAMMER = {
+  count:           1,
+  color:           0xff2222,   // bright red
+  moveSpeed:       6,
+  turnSpeed:       1.8,
+  hp:              1,
+  hitRadius:       1.8,
+  hitYOffset:      0.5,
+  minSpawnDist:    24,
+  jamRadius:          70,         // world units — doubled for larger map
+  flickerOnDuration:  0.8,       // seconds enemies stay INVISIBLE (longer)
+  flickerOffDuration: 0.2,       // seconds enemies stay VISIBLE (shorter)
+  // Geometry
+  hull: { width: 2.2, height: 1.1, depth: 3.6 },
+  cab:  { width: 2.0, height: 0.9, depth: 1.4 },
 };
 
 export const DESTRUCTION = {
@@ -245,6 +297,16 @@ export const AIM = {
   crosshairThickness: 2,    // px line width
   readyColor: '#ffff00',
   reloadingColor: '#888888',
+};
+
+export const EXPLOSION = {
+  particleCount:  10,
+  speed:          20,    // world units / second (outward burst)
+  duration:       0.7,   // seconds
+  size:           0.2,   // particle geometry radius
+  gravity:        12,    // particle gravity (gentler than sparks)
+  flashSize:      1.0,   // initial flash sphere radius
+  flashDuration:  0.12,  // seconds
 };
 
 export const EFFECTS = {
@@ -310,7 +372,7 @@ export const MINES = {
 
 // Drone — passive observer flying in a circle above the battlefield
 export const DRONE = {
-  orbitRadius:   50,    // world units from map centre
+  orbitRadius:   75,    // world units from map centre
   orbitHeight:   30,    // units above Y=0 (clears tallest terrain)
   orbitSpeed:    0.3,   // radians / second (full circle ≈ 21 s)
   bobAmplitude:  2.0,   // gentle vertical oscillation

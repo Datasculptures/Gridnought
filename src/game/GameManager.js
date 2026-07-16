@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, MAP_TYPES, INFANTRY, WORLD_SIZE } from '../utils/constants.js';
+import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, MAP_TYPES, INFANTRY, TRUCK, APC, JAMMER, WORLD_SIZE } from '../utils/constants.js';
 import GameState from './GameState.js';
 import InputManager from '../input/InputManager.js';
 import Terrain from '../terrain/Terrain.js';
@@ -12,6 +12,9 @@ import Tank from '../entities/Tank.js';
 import ProjectileManager from '../entities/ProjectileManager.js';
 import AIController from '../ai/AIController.js';
 import InfantryUnit from '../entities/InfantryUnit.js';
+import TruckVehicle  from '../entities/TruckVehicle.js';
+import APCVehicle    from '../entities/APCVehicle.js';
+import JammerTruck   from '../entities/JammerTruck.js';
 import Drone from '../entities/Drone.js';
 import MineManager from '../entities/MineManager.js';
 
@@ -40,7 +43,14 @@ export class GameManager {
     this.obstacleManager      = null;
     this.effectsManager       = null;
     this.infantry             = [];  // InfantryUnit[]
+    this.trucks               = [];  // TruckVehicle[]
+    this.apcs                 = [];  // APCVehicle[]
+    this.jammers              = [];  // JammerTruck[]
     this.drone                = null;
+
+    // Jammer effect state
+    this._jamFlickerTimer     = 0;
+    this._jamVisible          = true;
     this.mineManager          = null;
 
     // Map type for current round + player-selected preference ('random' = pick randomly)
@@ -159,6 +169,14 @@ export class GameManager {
     // Spawn infantry (they wait idle until the round starts)
     this._spawnInfantry();
 
+    // Spawn trucks, APCs, and jammers
+    this._spawnTrucks();
+    this._spawnAPCs();
+    this._spawnJammers();
+
+    // Wire vehicle-blocking provider into the movement validator
+    this._updateMobileEntityProvider();
+
     // Initial state — show the start menu
     this.state = GameState.MENU;
 
@@ -198,11 +216,22 @@ export class GameManager {
         inf.update(delta, this.playerTank, this.projectileManager);
       }
 
+      // Update trucks, APCs, and jammers
+      for (const truck   of this.trucks)   truck.update(delta);
+      for (const apc     of this.apcs)     apc.update(delta);
+      for (const jammer  of this.jammers)  jammer.update(delta);
+
+      // Jammer flicker effect
+      this._updateJammerEffect(delta);
+
       this.projectileManager.update(delta);
       this.collisionManager.update(delta);
 
       // Infantry hit detection — runs after CollisionManager so dead projectiles are skipped
       this._checkInfantryHits();
+
+      // Vehicle hit detection
+      this._checkVehicleHits();
 
       // Infantry crush — player tank running over infantry kills them
       this._checkInfantryCrush();
@@ -232,6 +261,10 @@ export class GameManager {
       for (const inf of this.infantry) {
         if (!inf.isAlive) inf.update(delta, this.playerTank, this.projectileManager);
       }
+      for (const truck   of this.trucks)   { if (!truck.isAlive)   truck.update(delta);   }
+      for (const apc     of this.apcs)     { if (!apc.isAlive)     apc.update(delta);     }
+      for (const jammer  of this.jammers)  { if (!jammer.isAlive)  jammer.update(delta);  }
+      this._setEnemyVisibility(true); // restore full visibility at round end
       this.effectsManager.update(delta);
     }
 
@@ -247,23 +280,10 @@ export class GameManager {
    * terrain (no regen). Obstacles from init() remain in place.
    */
   startRound() {
-    // If the player selected a specific map type that differs from the current terrain, rebuild it.
-    if (this._mapTypePreference !== 'random' && this.terrain.mapType !== this._mapTypePreference) {
-      this.regenerateTerrain();
-    }
-
-    this.projectileManager.clear();
-    this.collisionManager.clear();
-    this.effectsManager.clear();
-    this.drone.reset();
-    this.mineManager.generate(this.terrain, this.terrain.seed);
-    this.playerTank.reset(SPAWN.player);
-    this.enemyTank.reset(SPAWN.enemy);
-    this.aiController.reset();
-    this.aiController.generatePatrolWaypoints();
-    this._resetInfantry();
     this.pendingRoundResult = null;
     this.roundEndDelayTimer = 0;
+    this.regenerateTerrain();
+    this.drone.reset();
     this.aiController.setGameState(GameState.PLAYING);
     this.setState(GameState.PLAYING);
   }
@@ -274,7 +294,12 @@ export class GameManager {
   restartRound() {
     this.pendingRoundResult = null;
     this.roundEndDelayTimer = 0;
-    this.regenerateTerrain(); // also calls _resetInfantry() via _spawnInfantry
+    // Always pick a random map on Play Again, regardless of player preference
+    const saved = this._mapTypePreference;
+    this._mapTypePreference = 'random';
+    this.regenerateTerrain();
+    this._mapTypePreference = saved;
+    this.drone.reset();
     this.aiController.setGameState(GameState.PLAYING);
     this.setState(GameState.PLAYING);
   }
@@ -408,6 +433,154 @@ export class GameManager {
       const dz = inf.position.z - tz;
       if (dx * dx + dz * dz <= crushR2) {
         inf.takeHit();
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Vehicle helpers (Trucks + APCs)
+  // ---------------------------------------------------------------------------
+
+  _makeVehicleSpawnPos(rng, minDist) {
+    const spawnX  = SPAWN.player.x;
+    const spawnZ  = SPAWN.player.z;
+    const halfW   = WORLD_SIZE * 0.4;
+    const minD2   = minDist * minDist;
+    const clearR  = 4.5; // clearance radius to avoid spawning inside obstacles
+    let x = 0, z = 0;
+    for (let attempts = 0; attempts < 40; attempts++) {
+      x = (Math.random() - 0.5) * halfW * 2;
+      z = (Math.random() - 0.5) * halfW * 2;
+      const tooClose = ((x - spawnX) ** 2 + (z - spawnZ) ** 2) < minD2;
+      if (tooClose) continue;
+      const testPos = new THREE.Vector3(x, this.terrain.getHeightAt(x, z), z);
+      const blocked = this.obstacleManager?.obstacles.some(
+        obs => obs.intersectsSphere(testPos, clearR, 0),
+      );
+      if (!blocked) break;
+    }
+    return { x, z };
+  }
+
+  _spawnTrucks() {
+    for (const t of this.trucks) t.dispose();
+    this.trucks = [];
+    for (let i = 0; i < TRUCK.count; i++) {
+      const pos = this._makeVehicleSpawnPos(null, TRUCK.minSpawnDist);
+      this.trucks.push(new TruckVehicle(this.scene, {
+        position:          pos,
+        terrain:           this.terrain,
+        movementValidator: this.movementValidator,
+        mineManager:       this.mineManager,
+      }));
+    }
+  }
+
+  _spawnAPCs() {
+    for (const a of this.apcs) a.dispose();
+    this.apcs = [];
+    for (let i = 0; i < APC.count; i++) {
+      const pos = this._makeVehicleSpawnPos(null, APC.minSpawnDist);
+      this.apcs.push(new APCVehicle(this.scene, {
+        position:          pos,
+        terrain:           this.terrain,
+        movementValidator: this.movementValidator,
+        mineManager:       this.mineManager,
+        onSpawnInfantry:   (inf) => this.infantry.push(inf),
+      }));
+    }
+  }
+
+  _resetTrucks() {
+    // Dispose and respawn trucks on new terrain
+    this._spawnTrucks();
+  }
+
+  _resetAPCs() {
+    this._spawnAPCs();
+  }
+
+  _spawnJammers() {
+    for (const j of this.jammers) j.dispose();
+    this.jammers = [];
+    for (let i = 0; i < JAMMER.count; i++) {
+      const pos = this._makeVehicleSpawnPos(null, JAMMER.minSpawnDist);
+      this.jammers.push(new JammerTruck(this.scene, {
+        position:          pos,
+        terrain:           this.terrain,
+        movementValidator: this.movementValidator,
+        mineManager:       this.mineManager,
+      }));
+    }
+  }
+
+  _resetJammers() {
+    this._spawnJammers();
+    this._jamVisible = true;
+    this._jamFlickerTimer = 0;
+  }
+
+  /**
+   * Toggles visibility of all enemy entities when a live jammer is within range.
+   * Called every frame during PLAYING state.
+   */
+  _updateJammerEffect(delta) {
+    const px = this.playerTank.position.x;
+    const pz = this.playerTank.position.z;
+    const jamming = this.jammers.some(j => j.isJammingPosition(px, pz));
+
+    if (jamming) {
+      this._jamFlickerTimer -= delta;
+      if (this._jamFlickerTimer <= 0) {
+        this._jamVisible = !this._jamVisible;
+        // Asymmetric: longer invisible periods, shorter visible periods
+        const baseDur = this._jamVisible ? JAMMER.flickerOffDuration : JAMMER.flickerOnDuration;
+        this._jamFlickerTimer = baseDur * (0.6 + Math.random() * 0.8);
+        this._setEnemyVisibility(this._jamVisible);
+      }
+    } else if (!this._jamVisible) {
+      // Jammer out of range — restore visibility
+      this._jamVisible = true;
+      this._setEnemyVisibility(true);
+    }
+  }
+
+  /** Show/hide all enemy entities (tank, infantry, trucks, APCs, jammers). */
+  _setEnemyVisibility(visible) {
+    if (this.enemyTank?.group)   this.enemyTank.group.visible = visible;
+    for (const inf    of this.infantry) { if (inf.group    && inf.isAlive)    inf.group.visible    = visible; }
+    for (const truck  of this.trucks)   { if (truck.group  && truck.isAlive)  truck.group.visible  = visible; }
+    for (const apc    of this.apcs)     { if (apc.group    && apc.isAlive)    apc.group.visible    = visible; }
+    for (const jammer of this.jammers)  { if (jammer.group && jammer.isAlive) jammer.group.visible = visible; }
+  }
+
+  /**
+   * Checks all live projectiles against trucks, APCs, and jammers.
+   */
+  _checkVehicleHits() {
+    const projectiles = this.projectileManager.getActiveProjectiles();
+    for (const proj of projectiles) {
+      if (!proj.isAlive) continue;
+      const pos = proj.position;
+      if (!pos) continue;
+
+      let hitVehicle = false;
+      for (let vi = 0; vi < 3 && !hitVehicle; vi++) {
+        const list  = vi === 0 ? this.trucks : vi === 1 ? this.apcs : this.jammers;
+        const hitR  = vi === 0 ? TRUCK.hitRadius : vi === 1 ? APC.hitRadius : JAMMER.hitRadius;
+        for (const vehicle of list) {
+          if (!vehicle.isAlive) continue;
+          const hc = vehicle.getHitCenter();
+          const dx = pos.x - hc.x;
+          const dy = pos.y - hc.y;
+          const dz = pos.z - hc.z;
+          if (Math.sqrt(dx * dx + dy * dy + dz * dz) <= hitR) {
+            proj.kill();
+            vehicle.takeHit(proj.weaponType?.damage ?? 1);
+            hitVehicle = true;
+            break;
+          }
+        }
       }
     }
   }
@@ -624,6 +797,25 @@ export class GameManager {
 
     // Respawn infantry on the new terrain (picks up new mineManager automatically)
     this._resetInfantry();
+
+    // Respawn vehicles on the new terrain
+    this._resetTrucks();
+    this._resetAPCs();
+    this._resetJammers();
+
+    // Re-wire vehicle blocking provider to the new movementValidator instance
+    this._updateMobileEntityProvider();
+  }
+
+  /**
+   * Injects a provider function into the movement validator so all mobile
+   * entities (tanks + vehicles) block each other's movement.
+   */
+  _updateMobileEntityProvider() {
+    this.movementValidator.setMobileEntityProvider(() => [
+      this.playerTank, this.enemyTank,
+      ...this.trucks, ...this.apcs, ...this.jammers,
+    ]);
   }
 
   // ---------------------------------------------------------------------------
@@ -654,8 +846,14 @@ export class GameManager {
       if (system) system.dispose();
     }
 
-    for (const inf of this.infantry) inf.dispose();
+    for (const inf    of this.infantry) inf.dispose();
+    for (const truck  of this.trucks)   truck.dispose();
+    for (const apc    of this.apcs)     apc.dispose();
+    for (const jammer of this.jammers)  jammer.dispose();
     this.infantry = [];
+    this.trucks   = [];
+    this.apcs     = [];
+    this.jammers  = [];
 
     if (this.movementValidator) {
       this.movementValidator.dispose();
@@ -690,5 +888,8 @@ export class GameManager {
     this.effectsManager       = null;
     this.drone                = null;
     this.mineManager          = null;
+    this.trucks               = [];
+    this.apcs                 = [];
+    this.jammers              = [];
   }
 }

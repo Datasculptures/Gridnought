@@ -29,6 +29,9 @@ export default class Projectile {
     // If false, this projectile skips tank hit checks (e.g. player MG rounds)
     this.canHitTanks     = config.canHitTanks    ?? true;
 
+    // If true, death spawns a large explosion instead of hit sparks
+    this._explodeOnKill  = config.explodeOnKill  ?? false;
+
     // Weapon type — carries damage, penetrating flag, and range limit
     this.weaponType      = config.weaponType     ?? null;
 
@@ -79,10 +82,19 @@ export default class Projectile {
     return this._velocity;
   }
 
-  /** Immediately marks the projectile as dead (e.g. on hit). Spawns hit sparks. */
+  /** Immediately marks the projectile as dead (e.g. on hit). Spawns impact effect. */
   kill() {
+    this._die();
+  }
+
+  /** Internal death — spawns the appropriate visual effect and clears isAlive. */
+  _die() {
     if (this.effectsManager && this._headMesh) {
-      this.effectsManager.spawnHitSparks(this._headMesh.position.clone(), this._color);
+      if (this._explodeOnKill) {
+        this.effectsManager.spawnExplosion(this._headMesh.position.clone(), this._color);
+      } else {
+        this.effectsManager.spawnHitSparks(this._headMesh.position.clone(), this._color);
+      }
     }
     this.isAlive = false;
   }
@@ -124,14 +136,14 @@ export default class Projectile {
 
     // Safety: maximum flight time
     if (this._flightTime >= this._maxFlightTime) {
-      this.isAlive = false;
+      this._die();
       return;
     }
 
     // World bounds
     const halfWorld = WORLD_SIZE / 2;
     if (Math.abs(hx) > halfWorld || Math.abs(hz) > halfWorld) {
-      this.isAlive = false;
+      this._die();
       return;
     }
 
@@ -140,7 +152,7 @@ export default class Projectile {
       const rx = hx - this._originX;
       const rz = hz - this._originZ;
       if (rx * rx + rz * rz >= this.weaponType.range * this.weaponType.range) {
-        this.isAlive = false;
+        this._die();
         return;
       }
     }
@@ -148,7 +160,7 @@ export default class Projectile {
     // Terrain collision — projectile has hit the ground
     const terrainY = this.terrain.getHeightAt(hx, hz);
     if (hy <= terrainY + PROJECTILE.radius) {
-      this.isAlive = false;
+      this._die();
     }
   }
 

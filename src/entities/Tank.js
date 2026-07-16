@@ -144,7 +144,7 @@ export default class Tank {
 
     // ---- Barrel elevation pivot ----
     this.barrelElevPivot = new THREE.Group();
-    this.barrelElevPivot.position.set(0, TANK.barrel.yOffset, TANK.turret.depth / 2);
+    this.barrelElevPivot.position.set(0, TANK.barrel.topOffset, TANK.turret.depth / 2);
 
     const barrelGeo = new THREE.CylinderGeometry(
       TANK.barrel.radius, TANK.barrel.radius, TANK.barrel.length, 4,
@@ -341,12 +341,13 @@ export default class Tank {
     const newX  = fromX + Math.sin(this.heading) * effectiveSpeed * delta;
     const newZ  = fromZ + Math.cos(this.heading) * effectiveSpeed * delta;
 
-    // 7. Movement validation — wall-slide on rejection
-    const check = this.movementValidator.canMoveTo(fromX, fromZ, newX, newZ);
-    if (check.allowed) {
+    // 7. Movement validation — wall-slide on rejection (vehicle blocking skips slide)
+    const vBlocked = this.movementValidator.isVehicleBlocked(newX, newZ, this);
+    const check    = this.movementValidator.canMoveTo(fromX, fromZ, newX, newZ);
+    if (check.allowed && !vBlocked) {
       this.position.x = newX;
       this.position.z = newZ;
-    } else {
+    } else if (!vBlocked) {
       const checkX = this.movementValidator.canMoveTo(fromX, fromZ, newX, fromZ);
       const checkZ = this.movementValidator.canMoveTo(fromX, fromZ, fromX, newZ);
       if (checkX.allowed) this.position.x = newX;
@@ -405,13 +406,22 @@ export default class Tank {
       this._raycaster.setFromCamera(mousePos, this.camera);
 
       if (this.cameraController?.isPinned) {
-        // Pinned FPS mode: derive both turret direction AND elevation from the ray direction
-        const dir = this._raycaster.ray.direction; // normalized
-        const worldAngle = Math.atan2(dir.x, dir.z);
+        // Pinned FPS mode: raycast terrain to find the aimed point, then compute
+        // direction from the barrel tip → that point to correct for parallax offset
+        // between the camera origin and the actual barrel tip.
+        const hits = this._raycaster.intersectObject(this.terrain.solidMesh);
+        let aimDir;
+        if (hits.length > 0) {
+          this.group.updateWorldMatrix(true, true);
+          const tipPos = this.getBarrelTip();
+          aimDir = hits[0].point.clone().sub(tipPos).normalize();
+        } else {
+          aimDir = this._raycaster.ray.direction; // fallback: sky / past terrain
+        }
+        const worldAngle = Math.atan2(aimDir.x, aimDir.z);
         this.turretTargetAngle = ((worldAngle - this.heading + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-        // Elevation from ray's vertical component (atan2 of Y vs horizontal length)
-        const horizLen = Math.sqrt(dir.x * dir.x + dir.z * dir.z);
-        const rawElev  = Math.atan2(dir.y, horizLen);
+        const horizLen = Math.sqrt(aimDir.x * aimDir.x + aimDir.z * aimDir.z);
+        const rawElev  = Math.atan2(aimDir.y, horizLen);
         this._elevation = Math.max(TANK.barrel.minElevation, Math.min(TANK.barrel.maxElevation, rawElev));
       } else {
         // Free orbit mode: raycast against terrain for the aim point
@@ -459,9 +469,12 @@ export default class Tank {
       this.projectileManager.spawn({
         origin,
         velocity,
-        owner:      this,
-        color:      this.inputManager ? COLORS.projectile : COLORS.enemyProjectile,
-        weaponType: WeaponType.HEAVY_CANNON,
+        owner:         this,
+        color:         this.inputManager ? COLORS.projectile : COLORS.enemyProjectile,
+        weaponType:    WeaponType.HEAVY_CANNON,
+        gravity:       0,          // cannon fires straight — no arc
+        maxFlightTime: 40,         // long enough to cross the full map twice
+        explodeOnKill: true,       // detonate on impact
       });
       if (this.effectsManager) {
         this.effectsManager.spawnMuzzleFlash(origin.clone());

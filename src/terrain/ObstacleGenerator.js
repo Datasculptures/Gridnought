@@ -66,40 +66,83 @@ export default class ObstacleGenerator {
   }
 
   // ---------------------------------------------------------------------------
-  // City — 9×9 grid of rectangular buildings on flat terrain
+  // City — proper city grid: 5×5 blocks separated by wide streets and alleys
   // ---------------------------------------------------------------------------
-
-  static CITY_BUILDINGS = [
-    { w: 8,  h: 4,  d: 8  },
-    { w: 5,  h: 7,  d: 5  },
-    { w: 12, h: 3,  d: 5  },
-    { w: 3,  h: 10, d: 3  },
-    { w: 10, h: 4,  d: 10 },
-    { w: 6,  h: 5,  d: 8  },
-    { w: 4,  h: 8,  d: 4  },
-  ];
+  //
+  //  Block spacing: 40 units centre-to-centre  (28-unit block + 12-unit street)
+  //  Block centres: -80, -40, 0, 40, 80  (5 columns × 5 rows, within ±108)
+  //  Each block inner area: ≈22×22  (3-unit setback from the street edge)
+  //
+  //  Four layout patterns per block:
+  //    A – single large building (fills most of the block)
+  //    B – two buildings with a N-S alley between them
+  //    C – two buildings with an E-W alley between them
+  //    D – four corner buildings with an open courtyard in the centre
+  //  Buildings on main avenues (bx=0 or bz=0) are taller.
+  //  The block at (0,0) always gets a landmark tower.
 
   _generateCity(_terrain, rng) {
-    const placed = [];
-    // 9×9 grid at 16-unit spacing covering ±64 (within WORLD_SIZE/2=72)
-    const gridPositions = [-64, -48, -32, -16, 0, 16, 32, 48, 64];
+    const placed   = [];
+    const grid     = [-80, -40, 0, 40, 80];
+    const MAX_BLDG = 20; // clamp width/depth to stay within the block
 
-    for (const cx of gridPositions) {
-      for (const cz of gridPositions) {
-        if (!this._passesSpawnCheck(cx, cz)) continue;
-        if (rng() > 0.72) continue; // ~28% stay open
+    for (const bx of grid) {
+      for (const bz of grid) {
+        if (!this._passesSpawnCheck(bx, bz)) continue;
 
-        const b   = ObstacleGenerator.CITY_BUILDINGS[
-          Math.floor(rng() * ObstacleGenerator.CITY_BUILDINGS.length)
-        ];
-        const rot = Math.floor(rng() * 2) * (Math.PI / 2);
+        // Landmark tower at the city centre
+        if (bx === 0 && bz === 0) {
+          const s = 8 + Math.floor(rng() * 4);
+          placed.push({ type: 'cityBlock', position: { x: 0, z: 0 }, rotation: 0,
+            dimensions: { width: s, height: 12 + Math.floor(rng() * 8), depth: s } });
+          continue;
+        }
 
-        placed.push({
-          type:       'cityBlock',
-          position:   { x: cx, z: cz },
-          rotation:   rot,
-          dimensions: { width: b.w, height: b.h, depth: b.d },
-        });
+        if (rng() < 0.14) continue; // empty block — open plaza or park
+
+        const onMainAve = (bx === 0 || bz === 0);
+        const hBonus    = onMainAve ? 3 : 0;
+        const roll      = rng();
+
+        if (roll < 0.30) {
+          // Pattern A — single large building filling most of the block
+          const w = Math.min(12 + Math.floor(rng() * 8), MAX_BLDG);
+          const d = Math.min(12 + Math.floor(rng() * 8), MAX_BLDG);
+          const h =  3 + Math.floor(rng() * 6) + hBonus;
+          placed.push({ type: 'cityBlock', position: { x: bx, z: bz }, rotation: 0,
+            dimensions: { width: w, height: h, depth: d } });
+
+        } else if (roll < 0.55) {
+          // Pattern B — two buildings with a N-S (left/right) alley
+          const bW = 8, alley = 5, ox = bW / 2 + alley / 2;
+          const bD = Math.min(14 + Math.floor(rng() * 5), MAX_BLDG);
+          const h  =  3 + Math.floor(rng() * 5) + hBonus;
+          placed.push({ type: 'cityBlock', position: { x: bx - ox, z: bz }, rotation: 0,
+            dimensions: { width: bW, height: h,                        depth: bD } });
+          placed.push({ type: 'cityBlock', position: { x: bx + ox, z: bz }, rotation: 0,
+            dimensions: { width: bW, height: h + Math.floor(rng() * 4), depth: bD } });
+
+        } else if (roll < 0.78) {
+          // Pattern C — two buildings with an E-W (front/back) alley
+          const bD = 8, alley = 5, oz = bD / 2 + alley / 2;
+          const bW = Math.min(14 + Math.floor(rng() * 5), MAX_BLDG);
+          const h  =  3 + Math.floor(rng() * 5) + hBonus;
+          placed.push({ type: 'cityBlock', position: { x: bx, z: bz - oz }, rotation: 0,
+            dimensions: { width: bW, height: h,                        depth: bD } });
+          placed.push({ type: 'cityBlock', position: { x: bx, z: bz + oz }, rotation: 0,
+            dimensions: { width: bW, height: h + Math.floor(rng() * 4), depth: bD } });
+
+        } else {
+          // Pattern D — four corner buildings with an open courtyard
+          const s   = 7 + Math.floor(rng() * 2);
+          const off = s / 2 + 2;
+          const h   =  2 + Math.floor(rng() * 4) + hBonus;
+          for (const [sx, sz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+            placed.push({ type: 'cityBlock',
+              position: { x: bx + sx * off, z: bz + sz * off }, rotation: 0,
+              dimensions: { width: s, height: h + Math.floor(rng() * 3), depth: s } });
+          }
+        }
       }
     }
 
@@ -114,7 +157,7 @@ export default class ObstacleGenerator {
     const placed    = [];
     const halfWorld = WORLD_SIZE / 2;
     const margin    = 5;
-    const count     = 6 + Math.floor(rng() * 5);
+    const count     = 10 + Math.floor(rng() * 7);
     const typeDef   = OBSTACLES.types.pyramid;
     const dims      = { width: typeDef.width, height: typeDef.height, depth: typeDef.depth };
 
@@ -150,8 +193,8 @@ export default class ObstacleGenerator {
     const placed    = [];
     const halfWorld = WORLD_SIZE / 2 * 0.55; // keep obstacles inward
 
-    // 4-6 low bunkers scattered around
-    const bunkerCount = 4 + Math.floor(rng() * 3);
+    // 6-9 low bunkers scattered around
+    const bunkerCount = 6 + Math.floor(rng() * 4);
     const bd = OBSTACLES.types.bunker;
     for (let i = 0; i < bunkerCount; i++) {
       for (let attempt = 0; attempt < OBSTACLES.maxPlacementAttempts; attempt++) {
@@ -168,8 +211,8 @@ export default class ObstacleGenerator {
       }
     }
 
-    // 2-3 large water cylinders
-    const cylCount = 2 + Math.floor(rng() * 2);
+    // 3-5 large water cylinders
+    const cylCount = 3 + Math.floor(rng() * 3);
     const cd = OBSTACLES.types.cylinder;
     for (let i = 0; i < cylCount; i++) {
       for (let attempt = 0; attempt < OBSTACLES.maxPlacementAttempts; attempt++) {
@@ -185,8 +228,8 @@ export default class ObstacleGenerator {
       }
     }
 
-    // 3-6 missiles — can cluster more closely (a launch pad)
-    const missileCount = 3 + Math.floor(rng() * 4);
+    // 4-8 missiles — can cluster more closely (a launch pad)
+    const missileCount = 4 + Math.floor(rng() * 5);
     const md = OBSTACLES.types.missile;
     for (let i = 0; i < missileCount; i++) {
       for (let attempt = 0; attempt < OBSTACLES.maxPlacementAttempts; attempt++) {
@@ -203,7 +246,7 @@ export default class ObstacleGenerator {
     }
 
     // Tree clusters around the perimeter — concealment and visual variety
-    const treeClusters = 2 + Math.floor(rng() * 3);
+    const treeClusters = 3 + Math.floor(rng() * 4);
     const td = OBSTACLES.types.tree;
     const treeDims = { width: td.width, height: td.height, depth: td.depth };
     const treeHalf = WORLD_SIZE / 2;
@@ -233,6 +276,39 @@ export default class ObstacleGenerator {
       }
     }
 
+    // Outer edge scatter — additional bunkers and walls near the map boundary
+    const edgeHalf   = WORLD_SIZE / 2;
+    const edgeInner  = 45;
+    const edgeOuter  = edgeHalf - 2;
+    const wallDef    = OBSTACLES.types.wall;
+    const wallDims   = { width: wallDef.width, height: wallDef.height, depth: wallDef.depth };
+    const edgeCount  = 15 + Math.floor(rng() * 8);
+
+    for (let i = 0; i < edgeCount; i++) {
+      for (let attempt = 0; attempt < OBSTACLES.maxPlacementAttempts; attempt++) {
+        let x, z;
+        if (rng() < 0.5) {
+          x = (rng() < 0.5 ? -1 : 1) * (edgeInner + rng() * (edgeOuter - edgeInner));
+          z = (rng() * 2 - 1) * edgeOuter;
+        } else {
+          x = (rng() * 2 - 1) * edgeOuter;
+          z = (rng() < 0.5 ? -1 : 1) * (edgeInner + rng() * (edgeOuter - edgeInner));
+        }
+        if (!this._passesSpawnCheck(x, z))           continue;
+        if (!this._passesClusterCheck(x, z, placed)) continue;
+
+        const roll = rng();
+        if (roll < 0.35) {
+          placed.push({ type: 'bunker',   position: { x, z }, rotation: Math.floor(rng() * 2) * (Math.PI / 2), dimensions: { width: bd.width, height: bd.height, depth: bd.depth } });
+        } else if (roll < 0.65) {
+          placed.push({ type: 'wall',     position: { x, z }, rotation: Math.floor(rng() * 2) * (Math.PI / 2), dimensions: wallDims });
+        } else {
+          placed.push({ type: 'tree',     position: { x, z }, rotation: rng() * Math.PI * 2, dimensions: treeDims });
+        }
+        break;
+      }
+    }
+
     return placed;
   }
 
@@ -252,8 +328,8 @@ export default class ObstacleGenerator {
 
   _generateCrowdedCity(_terrain, rng) {
     const placed = [];
-    // 9×9 grid at 12-unit spacing — tighter than regular city
-    const gridPositions = [-48, -36, -24, -12, 0, 12, 24, 36, 48];
+    // 9×9 grid at 18-unit spacing — scaled for 216-unit world
+    const gridPositions = [-72, -54, -36, -18, 0, 18, 36, 54, 72];
 
     for (const cx of gridPositions) {
       for (const cz of gridPositions) {
@@ -286,8 +362,8 @@ export default class ObstacleGenerator {
     const halfWorld = WORLD_SIZE / 2;
     const td        = OBSTACLES.types.tree;
 
-    // 3-5 clusters of 4-7 trees placed in the valley floor (low terrain)
-    const clusterCount = 3 + Math.floor(rng() * 3);
+    // 4-7 clusters of 4-7 trees placed in the valley floor (low terrain)
+    const clusterCount = 4 + Math.floor(rng() * 4);
 
     for (let c = 0; c < clusterCount; c++) {
       // Cluster centre in the inner half of the map (valley floor)

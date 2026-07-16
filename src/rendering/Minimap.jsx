@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { MINIMAP, WORLD_SIZE, INFANTRY } from '../utils/constants.js';
+import { MINIMAP, WORLD_SIZE, INFANTRY, TRUCK, APC } from '../utils/constants.js';
 import GameState from '../game/GameState.js';
 
 /** Convert a world-space coordinate to a minimap canvas pixel. */
@@ -49,9 +49,9 @@ export default function Minimap({
   const canvasRef    = useRef(null);
   const offscreenRef = useRef(null);
 
-  // Pre-render terrain heightmap to offscreen canvas each time PLAYING starts.
+  // Pre-render terrain heightmap to offscreen canvas each time PLAYING or MENU starts.
   useEffect(() => {
-    if (gameState !== GameState.PLAYING) return;
+    if (gameState !== GameState.PLAYING && gameState !== GameState.MENU) return;
     const terrain = terrainRef.current;
     if (!terrain) return;
 
@@ -80,10 +80,9 @@ export default function Minimap({
     offscreenRef.current = offscreen;
   }, [gameState, terrainRef]);
 
-  // Animated draw loop — runs during PLAYING and ROUND_END so the minimap
-  // remains visible while destruction effects play out.
+  // Animated draw loop — runs during MENU, PLAYING and ROUND_END.
   useEffect(() => {
-    if (gameState !== GameState.PLAYING && gameState !== GameState.ROUND_END) return;
+    if (gameState !== GameState.PLAYING && gameState !== GameState.ROUND_END && gameState !== GameState.MENU) return;
 
     const size = MINIMAP.size;
     let rafId;
@@ -176,6 +175,50 @@ export default function Minimap({
         }
       }
 
+      // Trucks — grey dots (always visible, soft targets)
+      if (gm?.trucks) {
+        for (const truck of gm.trucks) {
+          if (!truck.isAlive) continue;
+          const px = worldToMap(truck.position.x, size);
+          const py = worldToMap(truck.position.z, size);
+          ctx.fillStyle = '#888888';
+          ctx.beginPath();
+          ctx.arc(px, py, MINIMAP.tankRadius * 0.7, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // APCs — light-red dots (always visible)
+      if (gm?.apcs) {
+        for (const apc of gm.apcs) {
+          if (!apc.isAlive) continue;
+          const px = worldToMap(apc.position.x, size);
+          const py = worldToMap(apc.position.z, size);
+          ctx.fillStyle = '#ff6666';
+          ctx.beginPath();
+          ctx.arc(px, py, MINIMAP.tankRadius * 0.8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Jammer trucks — bright red with a small ring to distinguish from APCs
+      if (gm?.jammers) {
+        for (const jammer of gm.jammers) {
+          if (!jammer.isAlive) continue;
+          const px = worldToMap(jammer.position.x, size);
+          const py = worldToMap(jammer.position.z, size);
+          ctx.strokeStyle = '#ff2222';
+          ctx.lineWidth   = 1.5;
+          ctx.beginPath();
+          ctx.arc(px, py, MINIMAP.tankRadius * 0.8, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.fillStyle = '#ff2222';
+          ctx.beginPath();
+          ctx.arc(px, py, MINIMAP.tankRadius * 0.35, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
       // Player tank (always visible)
       if (player && player.isAlive) {
         const px  = worldToMap(player.position.x, size);
@@ -208,7 +251,7 @@ export default function Minimap({
     return () => cancelAnimationFrame(rafId);
   }, [gameState, terrainRef, obstacleManagerRef, playerTankRef, enemyTankRef, projectileManagerRef, gameManagerRef]);
 
-  if (gameState !== GameState.PLAYING && gameState !== GameState.ROUND_END) return null;
+  if (gameState !== GameState.PLAYING && gameState !== GameState.ROUND_END && gameState !== GameState.MENU) return null;
 
   return (
     <canvas

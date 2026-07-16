@@ -164,19 +164,16 @@ export default class AIController {
   }
 
   /**
-   * Computes the elevation angle (radians) for a ballistic shot to reach
-   * the given horizontal range using the low (direct) trajectory.
-   * Returns 45° if the target is out of maximum range.
+   * Computes the elevation angle (radians) for a straight-line (gravity=0) shot
+   * to reach a target at the given horizontal distance and height difference.
    */
-  _ballisticElevation(range) {
-    const sinArg = (PROJECTILE.gravity * range) / (PROJECTILE.muzzleVelocity * PROJECTILE.muzzleVelocity);
-    if (sinArg >= 1.0) return Math.PI / 4; // max range attempt
-    return 0.5 * Math.asin(sinArg);
+  _directElevation(horizDist, dy) {
+    return Math.atan2(dy, Math.max(0.1, horizDist));
   }
 
-  /** Maximum horizontal range the ballistic gun can reach. */
+  /** Maximum horizontal range the cannon can reach (gravity=0, straight line). */
   _maxRange() {
-    return (PROJECTILE.muzzleVelocity * PROJECTILE.muzzleVelocity) / PROJECTILE.gravity;
+    return PROJECTILE.muzzleVelocity * 40; // 31 * 40 = 1240 — full map and beyond
   }
 
   updateDetect(delta) {
@@ -266,7 +263,7 @@ export default class AIController {
     }
 
     this.commands.aimTarget = player.position.clone();
-    this.commands.elevation = this._ballisticElevation(pDist);
+    this.commands.elevation = this._directElevation(pDist, player.position.y - this.tank.position.y);
 
     // Transition to aim when close enough and turret is roughly on-target
     if (pDist <= AI.pursuitDistance + AI.pursuitDistanceTolerance) {
@@ -289,7 +286,7 @@ export default class AIController {
 
     this.commands.moveInput = 0;
     this.commands.aimTarget = player.position.clone();
-    this.commands.elevation = this._ballisticElevation(pDist);
+    this.commands.elevation = this._directElevation(pDist, player.position.y - this.tank.position.y);
 
     if (pDist > AI.loseTargetRange || !player.isAlive) {
       this.state = 'patrol';
@@ -331,7 +328,7 @@ export default class AIController {
     const pDist = Math.sqrt(dx * dx + dz * dz);
 
     this.commands.aimTarget = this.playerTank.position.clone();
-    this.commands.elevation = this._ballisticElevation(pDist);
+    this.commands.elevation = this._directElevation(pDist, this.playerTank.position.y - this.tank.position.y);
 
     if (this.postFireTimer === 0 && this.tank.canFire && pDist <= this._maxRange()) {
       this.commands.fire = true;

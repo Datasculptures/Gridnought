@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { EFFECTS } from '../utils/constants.js';
+import { EFFECTS, EXPLOSION } from '../utils/constants.js';
 
 /**
  * Manages transient visual effects: muzzle flashes and hit sparks.
@@ -79,6 +79,69 @@ export default class EffectsManager {
     });
   }
 
+  /**
+   * Large explosion at impact point — cannon shell detonation.
+   * @param {THREE.Vector3} position
+   * @param {number}        color  - Three.js hex colour integer
+   */
+  spawnExplosion(position, color) {
+    // Central flash sphere
+    const flashGeo = new THREE.OctahedronGeometry(EXPLOSION.flashSize, 1);
+    const flashMat = new THREE.MeshBasicMaterial({
+      color:       0xffffff,
+      wireframe:   true,
+      transparent: true,
+      opacity:     1.0,
+    });
+    const flashMesh = new THREE.Mesh(flashGeo, flashMat);
+    flashMesh.position.copy(position);
+    this._scene.add(flashMesh);
+
+    this._effects.push({
+      type:       'flash',
+      meshes:     [flashMesh],
+      velocities: null,
+      timer:      EXPLOSION.flashDuration,
+      duration:   EXPLOSION.flashDuration,
+    });
+
+    // Particle burst
+    const meshes     = [];
+    const velocities = [];
+
+    for (let i = 0; i < EXPLOSION.particleCount; i++) {
+      const geo = new THREE.TetrahedronGeometry(EXPLOSION.size, 0);
+      const mat = new THREE.MeshBasicMaterial({
+        color,
+        wireframe:   true,
+        transparent: true,
+        opacity:     1.0,
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.copy(position);
+      this._scene.add(mesh);
+      meshes.push(mesh);
+
+      // Fully random 3D direction
+      const theta = Math.random() * Math.PI * 2;
+      const phi   = Math.acos(2 * Math.random() - 1);
+      const spd   = EXPLOSION.speed * (0.4 + Math.random() * 0.6);
+      velocities.push(new THREE.Vector3(
+        Math.sin(phi) * Math.cos(theta) * spd,
+        Math.abs(Math.cos(phi)) * spd * 0.5 + spd * 0.3, // bias upward
+        Math.sin(phi) * Math.sin(theta) * spd,
+      ));
+    }
+
+    this._effects.push({
+      type:       'explosion',
+      meshes,
+      velocities,
+      timer:      EXPLOSION.duration,
+      duration:   EXPLOSION.duration,
+    });
+  }
+
   update(delta) {
     for (let i = this._effects.length - 1; i >= 0; i--) {
       const eff = this._effects[i];
@@ -102,6 +165,14 @@ export default class EffectsManager {
           mesh.position.addScaledVector(vel, delta);
           vel.y -= EFFECTS.sparkGravity * delta;
           mesh.material.opacity = t;
+        }
+      } else if (eff.type === 'explosion') {
+        for (let j = 0; j < eff.meshes.length; j++) {
+          const mesh = eff.meshes[j];
+          const vel  = eff.velocities[j];
+          mesh.position.addScaledVector(vel, delta);
+          vel.y -= EXPLOSION.gravity * delta;
+          mesh.material.opacity = t * t; // fast fade
         }
       }
     }
