@@ -52,6 +52,9 @@ export default class Tank {
     this.isArmoured        = true;
     this.armor             = freshArmor(this._armorMaxHP);
 
+    // --- First-person aim state (world-stabilised turret yaw) ---
+    this._aimWorldYaw = null;
+
     // --- Machine gun burst state ---
     this._mgBurstLeft  = 0;
     this._mgBurstTimer = 0;
@@ -96,6 +99,17 @@ export default class Tank {
   /** Wires an AIController to this tank for AI-driven input. */
   setAIController(aiController) {
     this.aiController = aiController;
+  }
+
+  /** Called when the player enters first-person mode — seeds the aim yaw. */
+  enterFirstPerson() {
+    this._aimWorldYaw = this.heading + this.turretAngle;
+    if (this.inputManager) this.inputManager.consumeMouseDelta(); // discard stale motion
+  }
+
+  /** Barrel elevation as the first-person view pitch. */
+  getViewElevation() {
+    return this._elevation;
   }
 
   // ---------------------------------------------------------------------------
@@ -406,23 +420,20 @@ export default class Tank {
       this._raycaster.setFromCamera(mousePos, this.camera);
 
       if (this.cameraController?.isPinned) {
-        // Pinned FPS mode: raycast terrain to find the aimed point, then compute
-        // direction from the barrel tip → that point to correct for parallax offset
-        // between the camera origin and the actual barrel tip.
-        const hits = this._raycaster.intersectObjects(this.terrain.solidMeshes);
-        let aimDir;
-        if (hits.length > 0) {
-          this.group.updateWorldMatrix(true, true);
-          const tipPos = this.getBarrelTip();
-          aimDir = hits[0].point.clone().sub(tipPos).normalize();
-        } else {
-          aimDir = this._raycaster.ray.direction; // fallback: sky / past terrain
+        // First-person mode: pointer-lock mouse look drives the turret.
+        // The aim yaw is world-stabilised — rotating the hull doesn't drag
+        // the gun off target (the turret counter-rotates to hold aim).
+        const d    = this.inputManager.consumeMouseDelta();
+        const SENS = 0.0022; // radians per pixel of mouse movement
+        if (this._aimWorldYaw === null) {
+          this._aimWorldYaw = this.heading + this.turretAngle;
         }
-        const worldAngle = Math.atan2(aimDir.x, aimDir.z);
-        this.turretTargetAngle = ((worldAngle - this.heading + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-        const horizLen = Math.sqrt(aimDir.x * aimDir.x + aimDir.z * aimDir.z);
-        const rawElev  = Math.atan2(aimDir.y, horizLen);
-        this._elevation = Math.max(TANK.barrel.minElevation, Math.min(TANK.barrel.maxElevation, rawElev));
+        this._aimWorldYaw += d.x * SENS;
+        this._elevation = Math.max(
+          TANK.barrel.minElevation,
+          Math.min(TANK.barrel.maxElevation, this._elevation - d.y * SENS),
+        );
+        this.turretTargetAngle = ((this._aimWorldYaw - this.heading + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       } else {
         // Free orbit mode: raycast against terrain for the aim point
         const hits = this._raycaster.intersectObjects(this.terrain.solidMeshes);

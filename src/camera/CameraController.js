@@ -19,22 +19,15 @@ export default class CameraController {
     this.currentDistance = this.distance;
     this.currentTarget   = this.target.clone();
 
-    // Pin mode — near-FPS camera locked behind the player tank
+    // First-person mode — commander's view from the turret cupola,
+    // driven by pointer-lock mouse look. Toggled with P.
     this.isPinned    = false;
     this.playerTank  = null;
-    this._pWasDown   = false;
-    // Smoothed world position used only in pinned mode
-    this._pinnedPos  = new THREE.Vector3();
-    // Rear distance in pinned mode (zoom-adjustable, range 3–20)
-    this._pinnedDist = 6;
+    this._canvas     = null;
 
     // Store bound wheel handler so it can be removed in dispose()
     this._onWheel = (event) => {
-      if (this.isPinned) {
-        // In pinned mode zoom adjusts rear distance (small step for FPS feel)
-        this._pinnedDist += Math.sign(event.deltaY) * 1;
-        this._pinnedDist  = Math.max(3, Math.min(20, this._pinnedDist));
-      } else {
+      if (!this.isPinned) {
         this.distance += Math.sign(event.deltaY) * CAMERA.zoomSpeed;
         this.distance = Math.max(CAMERA.minDistance, Math.min(CAMERA.maxDistance, this.distance));
       }
@@ -44,7 +37,32 @@ export default class CameraController {
       }
     };
 
+    // Leaving pointer lock (Esc) exits first-person mode
+    this._onPointerLockChange = () => {
+      if (this.isPinned && document.pointerLockElement !== this._canvas) {
+        this.isPinned = false;
+      }
+    };
+
     window.addEventListener('wheel', this._onWheel, { passive: false });
+    document.addEventListener('pointerlockchange', this._onPointerLockChange);
+  }
+
+  /**
+   * Toggles first-person mode. Must be called from within a real user
+   * input event (transient activation) so pointer lock is granted.
+   * @param {HTMLCanvasElement} canvas
+   */
+  toggleFirstPerson(canvas) {
+    this._canvas = canvas || this._canvas;
+    if (!this.isPinned) {
+      this.isPinned = true;
+      if (this.playerTank) this.playerTank.enterFirstPerson();
+      this._canvas?.requestPointerLock?.();
+    } else {
+      this.isPinned = false;
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
   }
 
   /** Call from GameManager after the player tank is created. */
@@ -55,46 +73,29 @@ export default class CameraController {
   update(_delta) {
     const input = this.inputManager;
 
-    // --- P key: toggle pin mode (one-shot on key press) ---
-    const pDown = input.isKeyDown('KeyP');
-    if (pDown && !this._pWasDown) {
-      this.isPinned = !this.isPinned;
-      if (this.isPinned) {
-        // Seed smoothed position to current camera position so the transition
-        // has no jump — the lerp will carry it smoothly to the ideal spot.
-        this._pinnedPos.copy(this.camera.position);
-        this._pinnedDist = 6;
-      }
-    }
-    this._pWasDown = pDown;
-
     if (this.isPinned && this.playerTank) {
-      // --- Pinned near-FPS mode: direct camera control, early return ---
+      // --- First-person commander view: camera at the turret cupola,
+      //     looking along the turret's aim direction ---
       const tank    = this.playerTank;
       const tankPos = tank.group.position;
-      const sin     = Math.sin(tank.heading);
-      const cos     = Math.cos(tank.heading);
+      const aimYaw  = tank.heading + tank.turretAngle; // turret world yaw
+      const elev    = tank.getViewElevation ? tank.getViewElevation() : 0;
 
-      // Ideal position: _pinnedDist behind the tank, 2.5 units above its base
-      const rearX = tankPos.x - sin * this._pinnedDist;
-      const rearZ = tankPos.z - cos * this._pinnedDist;
-      const rearY = Math.max(
-        tankPos.y + 2.5,
-        this.terrain.getHeightAt(rearX, rearZ) + TERRAIN.cameraFloorOffset,
-      );
+      const sinY = Math.sin(aimYaw);
+      const cosY = Math.cos(aimYaw);
+      const cosE = Math.cos(elev);
+      const sinE = Math.sin(elev);
 
-      // Smooth lerp (0.2 α → tight follow that stays behind the tank)
-      this._pinnedPos.x += (rearX - this._pinnedPos.x) * 0.2;
-      this._pinnedPos.y += (rearY - this._pinnedPos.y) * 0.2;
-      this._pinnedPos.z += (rearZ - this._pinnedPos.z) * 0.2;
+      // Eye: above the turret, nudged back so the barrel base stays in frame
+      const eyeX = tankPos.x - sinY * 1.0;
+      const eyeY = tankPos.y + 2.35;
+      const eyeZ = tankPos.z - cosY * 1.0;
 
-      this.camera.position.copy(this._pinnedPos);
-
-      // Look at a point 20 units forward at just above turret height
+      this.camera.position.set(eyeX, eyeY, eyeZ);
       this.camera.lookAt(
-        tankPos.x + sin * 20,
-        tankPos.y + 1.5,
-        tankPos.z + cos * 20,
+        eyeX + sinY * cosE * 20,
+        eyeY + sinE * 20,
+        eyeZ + cosY * cosE * 20,
       );
       return; // skip spherical orbit update below
 
@@ -159,9 +160,12 @@ export default class CameraController {
 
   dispose() {
     window.removeEventListener('wheel', this._onWheel);
+    document.removeEventListener('pointerlockchange', this._onPointerLockChange);
+    if (document.pointerLockElement) document.exitPointerLock();
     this.camera       = null;
     this.inputManager = null;
     this.terrain      = null;
     this.playerTank   = null;
+    this._canvas      = null;
   }
 }

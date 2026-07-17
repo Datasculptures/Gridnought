@@ -6,6 +6,7 @@ import StartScreen from './rendering/StartScreen.jsx';
 import ResultsScreen from './rendering/ResultsScreen.jsx';
 import Minimap from './rendering/Minimap.jsx';
 import AimIndicator from './rendering/AimIndicator.jsx';
+import GunsightHUD from './rendering/GunsightHUD.jsx';
 import ControlsHelp from './rendering/ControlsHelp.jsx';
 import ElevationIndicator from './rendering/ElevationIndicator.jsx';
 import AreaX from './rendering/AreaX.jsx';
@@ -124,6 +125,12 @@ export default function App() {
       />
 
       <AimIndicator playerTankRef={playerTankRef} gameState={gameState} />
+
+      <GunsightHUD
+        playerTankRef={playerTankRef}
+        gameManagerRef={gameManagerRef}
+        gameState={gameState}
+      />
 
       <ElevationIndicator playerTankRef={playerTankRef} gameState={gameState} />
 

@@ -157,6 +157,14 @@ export class GameManager {
     this.cameraController.setPlayerTank(this.playerTank);
     this.playerTank.cameraController = this.cameraController;
 
+    // P toggles first-person mode. Registered as a DOM-event callback so the
+    // pointer lock request carries transient user activation.
+    this.inputManager.onKeyPress('KeyP', () => {
+      if (this.state === GameState.PLAYING) {
+        this.cameraController.toggleFirstPerson(canvasElement);
+      }
+    });
+
     // Drone — passive observer, flies a circular orbit above the battlefield
     this.drone = new Drone(this.scene);
 

@@ -43,6 +43,14 @@ export default function AimIndicator({ playerTankRef, gameState }) {
       canvas.style.top  = `${y - cy}px`;
 
       const tank  = playerTankRef.current;
+
+      // Hidden in first-person mode — the gunsight HUD takes over
+      if (tank?.cameraController?.isPinned) {
+        ctx.clearRect(0, 0, totalSize, totalSize);
+        rafId = requestAnimationFrame(draw);
+        return;
+      }
+
       const ready = tank ? tank.canFire : true;
       const color = ready ? AIM.readyColor : AIM.reloadingColor;
 
