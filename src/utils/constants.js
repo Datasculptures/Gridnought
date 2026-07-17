@@ -1,7 +1,43 @@
-// Grid — 50% larger again (72 → 108)
+// Grid — legacy constants kept for HUD/minimap scaling references
 export const GRID_SIZE = 108;
 export const CELL_SIZE = 2;
 export const WORLD_SIZE = GRID_SIZE * CELL_SIZE; // 216
+
+// Chunked infinite terrain
+export const CHUNK = {
+  cells: 32,                    // grid cells per chunk side
+  size: 32 * CELL_SIZE,         // 64 world units per chunk side
+  loadRadius: 3,                // chunks kept loaded around the focus (7×7 ring)
+  unloadRadius: 4,              // hysteresis — unload only beyond this
+  buildsPerFrame: 2,            // max chunk meshes built per frame (hitch guard)
+};
+
+// Biome pockets — the infinite world is tiled into large cells, each assigned
+// a biome type from a weighted table; heights blend smoothly across borders.
+export const BIOME = {
+  size: 240,                    // world units per biome cell
+  blendRadius: 1.4,             // weight falloff radius in units of BIOME.size
+  // Weighted biome table — must sum to 1.0
+  weights: [
+    ['plains',    0.22],
+    ['hills',     0.22],
+    ['forest',    0.16],
+    ['desert',    0.12],
+    ['mountains', 0.13],
+    ['city',      0.10],
+    ['fortress',  0.05],
+  ],
+};
+
+// River network carved through the world (any biome)
+export const RIVER = {
+  fieldScale: 0.0045,           // noise frequency for the river field
+  channelWidth: 0.05,           // |field| below this → river channel
+  maxDepth: 9,                  // carve depth at channel centre
+  fordScale: 0.02,              // ford noise frequency
+  fordThreshold: 0.62,          // ford noise above this → shallow crossing
+  fordDepth: 1.8,               // depth at fords (passable)
+};
 
 // Max delta time — clamp to this to prevent physics explosion on tab resume
 export const MAX_DELTA = 0.1;
@@ -273,10 +309,11 @@ export const ROUND = {
   resultDisplayDelay: 1.0,
 };
 
-// Spawn positions (world coordinates) — auto-scale with WORLD_SIZE
+// Spawn positions — the infinite world guarantees a plains biome at the
+// origin, so both tanks start on safe open ground.
 export const SPAWN = {
-  player: { x: -WORLD_SIZE / 2 + 10, z: -WORLD_SIZE / 2 + 10, heading: Math.PI / 4 },
-  enemy:  { x:  WORLD_SIZE / 2 - 10, z:  WORLD_SIZE / 2 - 10, heading: -Math.PI * 3 / 4 },
+  player: { x: 0,  z: 0,  heading: Math.PI / 4 },
+  enemy:  { x: 60, z: 60, heading: -Math.PI * 3 / 4 },
 };
 
 export const MINIMAP = {
@@ -332,17 +369,9 @@ export const CONTROLS_HELP = {
   fadeDuration: 1.2,      // CSS transition duration in seconds
 };
 
-// Map types — randomly chosen each round (or selected by player)
-export const MAP_TYPES = [
-  'hills',
-  'city',
-  'river',
-  'military_base',
-  'crowded_city',
-  'valley',
-  'desert',    // sparse rock outcrops — open sightlines, long-range duels
-  'fortress',  // walled central compound with missile silos and perimeter cover
-];
+// Map types — retained for the legacy bounded generator (unused by the
+// infinite world, which mixes these as biome pockets instead)
+export const MAP_TYPES = ['infinite'];
 
 // Terrain generation
 export const TERRAIN = {

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TRUCK, WORLD_SIZE } from '../utils/constants.js';
+import { TRUCK } from '../utils/constants.js';
 import DestructionEffect from '../rendering/DestructionEffect.js';
 
 /**
@@ -129,11 +129,13 @@ export default class TruckVehicle {
   // ---------------------------------------------------------------------------
 
   _pickWaypoint() {
-    const halfW = WORLD_SIZE * 0.43;
+    // Wander: random point 20–70 units from the current position
+    const ang = Math.random() * Math.PI * 2;
+    const r   = 20 + Math.random() * 50;
     this._waypoint.set(
-      (Math.random() * 2 - 1) * halfW,
+      this.position.x + Math.sin(ang) * r,
       0,
-      (Math.random() * 2 - 1) * halfW,
+      this.position.z + Math.cos(ang) * r,
     );
     const dist = Math.sqrt(
       (this._waypoint.x - this.position.x) ** 2 +

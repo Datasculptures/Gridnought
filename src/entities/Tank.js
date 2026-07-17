@@ -409,7 +409,7 @@ export default class Tank {
         // Pinned FPS mode: raycast terrain to find the aimed point, then compute
         // direction from the barrel tip → that point to correct for parallax offset
         // between the camera origin and the actual barrel tip.
-        const hits = this._raycaster.intersectObject(this.terrain.solidMesh);
+        const hits = this._raycaster.intersectObjects(this.terrain.solidMeshes);
         let aimDir;
         if (hits.length > 0) {
           this.group.updateWorldMatrix(true, true);
@@ -425,7 +425,7 @@ export default class Tank {
         this._elevation = Math.max(TANK.barrel.minElevation, Math.min(TANK.barrel.maxElevation, rawElev));
       } else {
         // Free orbit mode: raycast against terrain for the aim point
-        const hits = this._raycaster.intersectObject(this.terrain.solidMesh);
+        const hits = this._raycaster.intersectObjects(this.terrain.solidMeshes);
         if (hits.length > 0) aimPoint = hits[0].point;
       }
     } else if (aimTarget) {

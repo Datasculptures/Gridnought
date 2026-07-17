@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CAMERA, WORLD_SIZE, TERRAIN } from '../utils/constants.js';
+import { CAMERA, TERRAIN } from '../utils/constants.js';
 
 export default class CameraController {
   constructor(camera, inputManager, terrain) {
@@ -115,11 +115,6 @@ export default class CameraController {
 
       this.target.x += panX * CAMERA.panSpeed;
       this.target.z += panZ * CAMERA.panSpeed;
-
-      // Clamp target to world bounds
-      const halfWorld = WORLD_SIZE / 2;
-      this.target.x = Math.max(-halfWorld, Math.min(halfWorld, this.target.x));
-      this.target.z = Math.max(-halfWorld, Math.min(halfWorld, this.target.z));
 
       // Keep look-at point on the terrain surface
       this.target.y = this.terrain.getHeightAt(this.target.x, this.target.z);

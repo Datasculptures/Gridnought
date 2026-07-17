@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MINES, WORLD_SIZE, SPAWN } from '../utils/constants.js';
+import { MINES, SPAWN } from '../utils/constants.js';
 import { seededRandom } from '../terrain/noise.js';
 
 /**
@@ -43,11 +43,11 @@ export default class MineManager {
     const clusterCount = Math.floor(rng() * (MINES.maxClusters + 1)); // 0, 1, or 2
 
     for (let c = 0; c < clusterCount; c++) {
-      // Find a cluster centre away from both spawns, in the inner portion of the map
+      // Find a cluster centre away from both spawns, within the starting area
       let cx, cz, att = 0;
       do {
-        cx = (rng() * 2 - 1) * (WORLD_SIZE / 2 * 0.55);
-        cz = (rng() * 2 - 1) * (WORLD_SIZE / 2 * 0.55);
+        cx = (rng() * 2 - 1) * 120;
+        cz = (rng() * 2 - 1) * 120;
         att++;
       } while (this._nearSpawn(cx, cz) && att < 30);
       if (this._nearSpawn(cx, cz)) continue; // give up if no safe spot
@@ -59,7 +59,6 @@ export default class MineManager {
         const mx = cx + (rng() - 0.5) * MINES.clusterSpread * 2;
         const mz = cz + (rng() - 0.5) * MINES.clusterSpread * 2;
         if (this._nearSpawn(mx, mz)) continue;
-        if (Math.abs(mx) > WORLD_SIZE / 2 - 3 || Math.abs(mz) > WORLD_SIZE / 2 - 3) continue;
 
         const y   = terrain.getHeightAt(mx, mz);
         const pos = new THREE.Vector3(mx, y, mz);

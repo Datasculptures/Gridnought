@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react';
-import { MINIMAP, WORLD_SIZE, INFANTRY, TRUCK, APC } from '../utils/constants.js';
+import { MINIMAP, INFANTRY } from '../utils/constants.js';
 import GameState from '../game/GameState.js';
 
-/** Convert a world-space coordinate to a minimap canvas pixel. */
-function worldToMap(w, size) {
-  return ((w / WORLD_SIZE) + 0.5) * size;
-}
+// World units shown across the minimap (player-centred window)
+const VIEW_SIZE = 220;
+// Terrain bake resolution (upscaled with pixelated rendering — on brand)
+const BAKE_RES = 80;
+// Seconds between terrain re-bakes as the player moves
+const BAKE_INTERVAL = 0.5;
 
 /**
  * Returns true if either the player tank or the drone has an unobstructed
@@ -24,18 +26,9 @@ function hasLOS(om, player, drone, tx, ty, tz) {
 }
 
 /**
- * Canvas-based minimap rendered via a private RAF loop.
- * Terrain is pre-rendered to an offscreen canvas whenever the game enters
- * PLAYING state (catches both first start and terrain regen on Play Again).
- *
- * Props:
- *   terrainRef           React ref to current Terrain instance
- *   obstacleManagerRef   React ref to ObstacleManager
- *   playerTankRef        React ref to player Tank
- *   enemyTankRef         React ref to enemy Tank
- *   projectileManagerRef React ref to ProjectileManager
- *   gameManagerRef       React ref to GameManager (for infantry + drone)
- *   gameState            current GameState string
+ * Canvas minimap for the infinite world — a moving window centred on the
+ * player. Terrain height shading re-bakes every BAKE_INTERVAL seconds from
+ * the streaming terrain, so the map scrolls as you explore.
  */
 export default function Minimap({
   terrainRef,
@@ -48,71 +41,90 @@ export default function Minimap({
 }) {
   const canvasRef    = useRef(null);
   const offscreenRef = useRef(null);
+  const lastBakeRef  = useRef({ time: 0, x: Infinity, z: Infinity });
 
-  // Pre-render terrain heightmap to offscreen canvas each time PLAYING or MENU starts.
-  useEffect(() => {
-    if (gameState !== GameState.PLAYING && gameState !== GameState.MENU) return;
-    const terrain = terrainRef.current;
-    if (!terrain) return;
-
-    const size      = MINIMAP.size;
-    const offscreen = document.createElement('canvas');
-    offscreen.width  = size;
-    offscreen.height = size;
-    const ctx     = offscreen.getContext('2d');
-    const imgData = ctx.createImageData(size, size);
-
-    for (let py = 0; py < size; py++) {
-      for (let px = 0; px < size; px++) {
-        const wx  = (px / size - 0.5) * WORLD_SIZE;
-        const wz  = (py / size - 0.5) * WORLD_SIZE;
-        const h   = terrain.getHeightAt(wx, wz);
-        const t   = Math.min(1, Math.max(0, (h + 2) / 16));
-        const g   = Math.round(30 + t * 130);
-        const idx = (py * size + px) * 4;
-        imgData.data[idx]     = 0;
-        imgData.data[idx + 1] = g;
-        imgData.data[idx + 2] = 0;
-        imgData.data[idx + 3] = 255;
-      }
-    }
-    ctx.putImageData(imgData, 0, 0);
-    offscreenRef.current = offscreen;
-  }, [gameState, terrainRef]);
-
-  // Animated draw loop — runs during MENU, PLAYING and ROUND_END.
   useEffect(() => {
     if (gameState !== GameState.PLAYING && gameState !== GameState.ROUND_END && gameState !== GameState.MENU) return;
 
     const size = MINIMAP.size;
     let rafId;
 
-    const draw = () => {
+    // World → map pixels, relative to the view centre
+    const w2m = (w, c) => ((w - c) / VIEW_SIZE + 0.5) * size;
+
+    const bakeTerrain = (terrain, cx, cz) => {
+      let offscreen = offscreenRef.current;
+      if (!offscreen) {
+        offscreen = document.createElement('canvas');
+        offscreen.width  = BAKE_RES;
+        offscreen.height = BAKE_RES;
+        offscreenRef.current = offscreen;
+      }
+      const bctx    = offscreen.getContext('2d');
+      const imgData = bctx.createImageData(BAKE_RES, BAKE_RES);
+      for (let py = 0; py < BAKE_RES; py++) {
+        for (let px = 0; px < BAKE_RES; px++) {
+          const wx  = cx + (px / BAKE_RES - 0.5) * VIEW_SIZE;
+          const wz  = cz + (py / BAKE_RES - 0.5) * VIEW_SIZE;
+          const h   = terrain.getHeightAt(wx, wz);
+          // Below-zero (rivers) shade toward blue-black; hills toward green
+          const t   = Math.min(1, Math.max(0, (h + 2) / 16));
+          const idx = (py * BAKE_RES + px) * 4;
+          imgData.data[idx]     = 0;
+          imgData.data[idx + 1] = Math.round(30 + t * 130);
+          imgData.data[idx + 2] = h < -1.5 ? 60 : 0;
+          imgData.data[idx + 3] = 255;
+        }
+      }
+      bctx.putImageData(imgData, 0, 0);
+    };
+
+    const draw = (now) => {
       const canvas = canvasRef.current;
       if (!canvas) { rafId = requestAnimationFrame(draw); return; }
-      const ctx = canvas.getContext('2d');
+      const ctx     = canvas.getContext('2d');
+      const player  = playerTankRef.current;
+      const terrain = terrainRef.current;
+      const cx = player ? player.position.x : 0;
+      const cz = player ? player.position.z : 0;
+
+      // Re-bake terrain window periodically or after teleport-scale moves
+      const lb = lastBakeRef.current;
+      if (terrain && (now - lb.time > BAKE_INTERVAL * 1000
+          || Math.abs(cx - lb.x) > VIEW_SIZE / 4
+          || Math.abs(cz - lb.z) > VIEW_SIZE / 4)) {
+        bakeTerrain(terrain, cx, cz);
+        lastBakeRef.current = { time: now, x: cx, z: cz };
+      }
 
       // Background
       ctx.fillStyle = 'rgba(0,0,0,0.78)';
       ctx.fillRect(0, 0, size, size);
 
-      // Terrain heightmap
+      // Terrain shading — offset by movement since last bake so it scrolls
       if (offscreenRef.current) {
+        const dxPix = ((lb.x - cx) / VIEW_SIZE) * size;
+        const dzPix = ((lb.z - cz) / VIEW_SIZE) * size;
+        ctx.imageSmoothingEnabled = false;
         ctx.globalAlpha = 0.65;
-        ctx.drawImage(offscreenRef.current, 0, 0);
+        ctx.drawImage(offscreenRef.current, dxPix, dzPix, size, size);
         ctx.globalAlpha = 1.0;
       }
 
-      // Obstacles — filled rectangles sized from each OBB's half-extents
+      const inView = (x, z) =>
+        Math.abs(x - cx) < VIEW_SIZE / 2 + 8 && Math.abs(z - cz) < VIEW_SIZE / 2 + 8;
+
+      // Obstacles
       const om = obstacleManagerRef.current;
       if (om) {
         ctx.fillStyle = '#00bb00';
         for (const obs of om.getObstacles()) {
           const { center, halfExtents } = obs.obb;
-          const px = worldToMap(center.x, size);
-          const py = worldToMap(center.z, size);
-          const pw = Math.max(2, (halfExtents.x / (WORLD_SIZE / 2)) * size);
-          const ph = Math.max(2, (halfExtents.z / (WORLD_SIZE / 2)) * size);
+          if (!inView(center.x, center.z)) continue;
+          const px = w2m(center.x, cx);
+          const py = w2m(center.z, cz);
+          const pw = Math.max(2, (halfExtents.x / (VIEW_SIZE / 2)) * size);
+          const ph = Math.max(2, (halfExtents.z / (VIEW_SIZE / 2)) * size);
           ctx.fillRect(px - pw, py - ph, pw * 2, ph * 2);
         }
       }
@@ -122,8 +134,9 @@ export default function Minimap({
       if (pm) {
         for (const proj of pm.getActiveProjectiles()) {
           if (!proj.isAlive || !proj.position) continue;
-          const px = worldToMap(proj.position.x, size);
-          const py = worldToMap(proj.position.z, size);
+          if (!inView(proj.position.x, proj.position.z)) continue;
+          const px = w2m(proj.position.x, cx);
+          const py = w2m(proj.position.z, cz);
           const isPlayer = proj.owner === playerTankRef.current;
           ctx.fillStyle = isPlayer ? MINIMAP.projectileColor : MINIMAP.enemyProjectileColor;
           ctx.beginPath();
@@ -132,17 +145,16 @@ export default function Minimap({
         }
       }
 
-      const player = playerTankRef.current;
-      const gm     = gameManagerRef?.current;
-      const drone  = gm?.drone ?? null;
+      const gm    = gameManagerRef?.current;
+      const drone = gm?.drone ?? null;
 
       // Enemy tank — only if player or drone has LOS
       const enemy = enemyTankRef.current;
-      if (enemy && enemy.isAlive) {
+      if (enemy && enemy.isAlive && inView(enemy.position.x, enemy.position.z)) {
         const ety = enemy.position.y + 0.85;
         if (hasLOS(om, player, drone, enemy.position.x, ety, enemy.position.z)) {
-          const px  = worldToMap(enemy.position.x, size);
-          const py  = worldToMap(enemy.position.z, size);
+          const px  = w2m(enemy.position.x, cx);
+          const py  = w2m(enemy.position.z, cz);
           const fwd = enemy.getForwardDirection();
           ctx.fillStyle = MINIMAP.enemyColor;
           ctx.beginPath();
@@ -164,6 +176,7 @@ export default function Minimap({
       if (gm?.entityManager) {
         for (const e of gm.entityManager.entities) {
           if (!e.isAlive) continue;
+          if (!inView(e.position.x, e.position.z)) continue;
 
           // Infantry only show when the player or drone has line of sight
           if (e.kind === 'infantry') {
@@ -171,8 +184,8 @@ export default function Minimap({
             if (!hasLOS(om, player, drone, e.position.x, iy, e.position.z)) continue;
           }
 
-          const px = worldToMap(e.position.x, size);
-          const py = worldToMap(e.position.z, size);
+          const px = w2m(e.position.x, cx);
+          const py = w2m(e.position.z, cz);
 
           switch (e.kind) {
             case 'infantry':
@@ -194,7 +207,6 @@ export default function Minimap({
               ctx.fill();
               break;
             case 'jammer':
-              // Bright red with a ring to distinguish from APCs
               ctx.strokeStyle = '#ff2222';
               ctx.lineWidth   = 1.5;
               ctx.beginPath();
@@ -206,7 +218,6 @@ export default function Minimap({
               ctx.fill();
               break;
             default:
-              // Unknown kinds: neutral grey dot so new units are still visible
               ctx.fillStyle = '#aaaaaa';
               ctx.beginPath();
               ctx.arc(px, py, MINIMAP.tankRadius * 0.6, 0, Math.PI * 2);
@@ -215,10 +226,10 @@ export default function Minimap({
         }
       }
 
-      // Player tank (always visible)
+      // Player tank — always centred
       if (player && player.isAlive) {
-        const px  = worldToMap(player.position.x, size);
-        const py  = worldToMap(player.position.z, size);
+        const px  = size / 2;
+        const py  = size / 2;
         const fwd = player.getForwardDirection();
         ctx.fillStyle = MINIMAP.playerColor;
         ctx.beginPath();

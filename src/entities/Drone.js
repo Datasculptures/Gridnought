@@ -16,6 +16,8 @@ export default class Drone {
     this._angle     = Math.random() * Math.PI * 2; // random start position on orbit
     this.isAlive    = true;
     this.isArmoured = false;
+    // Orbit centre — drifts toward the focus (player) in the infinite world
+    this._center    = new THREE.Vector3(0, 0, 0);
 
     this._buildMesh();
     scene.add(this.group);
@@ -92,12 +94,23 @@ export default class Drone {
   // Update
   // ---------------------------------------------------------------------------
 
-  update(delta) {
+  /**
+   * @param {number} delta
+   * @param {THREE.Vector3|null} focus - orbit centre target (player position)
+   */
+  update(delta, focus = null) {
     if (!this.isAlive) return;
     this._angle += DRONE.orbitSpeed * delta;
 
-    const x = Math.sin(this._angle) * DRONE.orbitRadius;
-    const z = Math.cos(this._angle) * DRONE.orbitRadius;
+    // Drift the orbit centre slowly toward the focus so the drone stays
+    // overhead as the player explores
+    if (focus) {
+      this._center.x += (focus.x - this._center.x) * Math.min(1, delta * 0.3);
+      this._center.z += (focus.z - this._center.z) * Math.min(1, delta * 0.3);
+    }
+
+    const x = this._center.x + Math.sin(this._angle) * DRONE.orbitRadius;
+    const z = this._center.z + Math.cos(this._angle) * DRONE.orbitRadius;
     // Gentle vertical bobbing
     const y = DRONE.orbitHeight
       + Math.sin(this._angle * (DRONE.bobFrequency / DRONE.orbitSpeed)) * DRONE.bobAmplitude;

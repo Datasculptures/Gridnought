@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, MAP_TYPES, INFANTRY, TRUCK, APC, JAMMER, WORLD_SIZE } from '../utils/constants.js';
+import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER } from '../utils/constants.js';
 import GameState from './GameState.js';
 import InputManager from '../input/InputManager.js';
-import Terrain from '../terrain/Terrain.js';
+import ChunkedTerrain from '../terrain/ChunkedTerrain.js';
 import EffectsManager from '../rendering/EffectsManager.js';
 import CameraController from '../camera/CameraController.js';
 import MovementValidator from '../physics/MovementValidator.js';
@@ -88,13 +88,14 @@ export class GameManager {
     this.inputManager = new InputManager();
     this.inputManager.init();
 
-    // Terrain — pick map type randomly each session
-    this.mapType = MAP_TYPES[Math.floor(Math.random() * MAP_TYPES.length)];
-    this.terrain = new Terrain(this.scene);
-    this.terrain.build(undefined, this.mapType);
+    // Infinite chunked terrain — biome pockets stream in around the player
+    this.mapType = 'infinite';
+    this.terrain = new ChunkedTerrain(this.scene);
 
-    // Obstacles (generated from same seed as terrain for determinism)
+    // Obstacles generate per chunk as terrain streams; wire before build so
+    // the synchronously-built spawn chunks get populated too
     this.obstacleManager = new ObstacleManager(this.scene, this.terrain);
+    this.terrain.build(undefined, this.mapType);
     this.obstacleManager.generate(this.terrain.seed, this.mapType);
 
     // Convenience reference on terrain
@@ -205,6 +206,9 @@ export class GameManager {
       this.playerTank.update(delta);
       this.enemyTank.update(delta);
 
+      // Stream terrain chunks around the player
+      this.terrain.setFocus(this.playerTank.position.x, this.playerTank.position.z);
+
       // All registered entities (infantry, trucks, APCs, jammers, ...)
       this.entityManager.update(delta, this._entityCtx());
 
@@ -230,7 +234,7 @@ export class GameManager {
       // Drone hit check
       this._checkDroneHits();
 
-      this.drone.update(delta);
+      this.drone.update(delta, this.playerTank.position);
       this.effectsManager.update(delta);
 
       if (this.pendingRoundResult !== null) {
@@ -400,15 +404,14 @@ export class GameManager {
   _makeVehicleSpawnPos(rng, minDist) {
     const spawnX  = SPAWN.player.x;
     const spawnZ  = SPAWN.player.z;
-    const halfW   = WORLD_SIZE * 0.4;
-    const minD2   = minDist * minDist;
-    const clearR  = 4.5; // clearance radius to avoid spawning inside obstacles
+    const maxDist = 110;  // stay inside the initially loaded chunk ring
+    const clearR  = 4.5;  // clearance radius to avoid spawning inside obstacles
     let x = 0, z = 0;
     for (let attempts = 0; attempts < 40; attempts++) {
-      x = (Math.random() - 0.5) * halfW * 2;
-      z = (Math.random() - 0.5) * halfW * 2;
-      const tooClose = ((x - spawnX) ** 2 + (z - spawnZ) ** 2) < minD2;
-      if (tooClose) continue;
+      const ang  = Math.random() * Math.PI * 2;
+      const dist = minDist + Math.random() * (maxDist - minDist);
+      x = spawnX + Math.sin(ang) * dist;
+      z = spawnZ + Math.cos(ang) * dist;
       const testPos = new THREE.Vector3(x, this.terrain.getHeightAt(x, z), z);
       const blocked = this.obstacleManager?.obstacles.some(
         obs => obs.intersectsSphere(testPos, clearR, 0),
@@ -589,19 +592,14 @@ export class GameManager {
     this.collisionManager.clear();
     this.effectsManager.clear();
 
-    // Pick map type — respect player preference; fall back to random
-    this.mapType = (this._mapTypePreference && this._mapTypePreference !== 'random')
-      ? this._mapTypePreference
-      : MAP_TYPES[Math.floor(Math.random() * MAP_TYPES.length)];
+    this.mapType = 'infinite';
 
-    // Rebuild terrain
+    // Rebuild terrain — a fresh seed produces an entirely new world
     this.terrain.dispose();
-    this.terrain = new Terrain(this.scene);
-    this.terrain.build(seed, this.mapType);
-
-    // Rebuild obstacles for the new terrain
+    this.terrain = new ChunkedTerrain(this.scene);
     this.obstacleManager.clear();
     this.obstacleManager.terrain = this.terrain;
+    this.terrain.build(seed, this.mapType);
     this.obstacleManager.generate(this.terrain.seed, this.mapType);
 
     // Wire convenience reference

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { AI, CELL_SIZE, WORLD_SIZE, COLLISION, PROJECTILE, TANK } from '../utils/constants.js';
+import { AI, CELL_SIZE, COLLISION, PROJECTILE, TANK } from '../utils/constants.js';
 import GameState from '../game/GameState.js';
 
 const VALID_STATES = new Set(['patrol', 'detect', 'pursue', 'aim', 'fire']);
@@ -433,7 +433,6 @@ export default class AIController {
   generatePatrolWaypoints() {
     const spawnX = this.tank._spawnConfig.x;
     const spawnZ = this.tank._spawnConfig.z;
-    const half   = WORLD_SIZE / 2;
 
     this.patrolWaypoints = [];
 
@@ -447,24 +446,22 @@ export default class AIController {
         const wx    = spawnX + Math.sin(angle) * dist;
         const wz    = spawnZ + Math.cos(angle) * dist;
 
-        if (wx >= -half && wx <= half && wz >= -half && wz <= half) {
-          const h = this.terrain.getHeightAt(wx, wz);
-          if (!Number.isFinite(h)) continue;
+        const h = this.terrain.getHeightAt(wx, wz);
+        if (!Number.isFinite(h)) continue;
 
-          // Obstacle check for waypoint
-          if (this.obstacleManager) {
-            const wy  = h + COLLISION.tankHitYOffset;
-            const res = this.obstacleManager.checkTankCollision({ x: wx, y: wy, z: wz }, COLLISION.tankHitRadius);
-            if (res.blocked) continue;
-          }
-
-          // Mine check for waypoint — avoid placing patrol points in mine zones
-          if (this.mineManager && this.mineManager.isMineNearby(wx, wz)) continue;
-
-          this.patrolWaypoints.push({ x: wx, z: wz });
-          placed = true;
-          break;
+        // Obstacle check for waypoint
+        if (this.obstacleManager) {
+          const wy  = h + COLLISION.tankHitYOffset;
+          const res = this.obstacleManager.checkTankCollision({ x: wx, y: wy, z: wz }, COLLISION.tankHitRadius);
+          if (res.blocked) continue;
         }
+
+        // Mine check for waypoint — avoid placing patrol points in mine zones
+        if (this.mineManager && this.mineManager.isMineNearby(wx, wz)) continue;
+
+        this.patrolWaypoints.push({ x: wx, z: wz });
+        placed = true;
+        break;
       }
 
       if (!placed) {

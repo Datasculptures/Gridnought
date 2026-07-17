@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PROJECTILE, WORLD_SIZE } from '../utils/constants.js';
+import { PROJECTILE } from '../utils/constants.js';
 
 export default class Projectile {
   /**
@@ -136,13 +136,6 @@ export default class Projectile {
 
     // Safety: maximum flight time
     if (this._flightTime >= this._maxFlightTime) {
-      this._die();
-      return;
-    }
-
-    // World bounds
-    const halfWorld = WORLD_SIZE / 2;
-    if (Math.abs(hx) > halfWorld || Math.abs(hz) > halfWorld) {
       this._die();
       return;
     }

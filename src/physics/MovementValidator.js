@@ -1,4 +1,4 @@
-import { WORLD_SIZE, CELL_SIZE, TANK, COLLISION } from '../utils/constants.js';
+import { CELL_SIZE, TANK, COLLISION } from '../utils/constants.js';
 
 const BLOCK_R = COLLISION.vehicleBlockRadius; // convenience alias
 
@@ -71,12 +71,7 @@ export default class MovementValidator {
    * Returns { allowed: boolean, reason: string }.
    */
   canMoveTo(fromX, fromZ, toX, toZ) {
-    const half = WORLD_SIZE / 2;
-
-    // Step 1 — Bounds check
-    if (toX < -half || toX > half || toZ < -half || toZ > half) {
-      return { allowed: false, reason: 'out_of_bounds' };
-    }
+    // The world is infinite — no bounds check.
 
     // Step 2 — Grid passability (cardinal direction)
     const dir = this.getMovementDirection(fromX, fromZ, toX, toZ);
