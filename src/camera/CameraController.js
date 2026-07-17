@@ -37,10 +37,13 @@ export default class CameraController {
       }
     };
 
-    // Leaving pointer lock (Esc) exits first-person mode
+    // Losing pointer lock while pinned (browser Esc) is reported upward —
+    // GameManager opens the pause menu; the camera stays in first person
+    // so the paused scene keeps its view.
+    this._onLockLost = null;
     this._onPointerLockChange = () => {
       if (this.isPinned && document.pointerLockElement !== this._canvas) {
-        this.isPinned = false;
+        if (typeof this._onLockLost === 'function') this._onLockLost();
       }
     };
 
@@ -60,6 +63,11 @@ export default class CameraController {
       this.isPinned = false;
       if (document.pointerLockElement) document.exitPointerLock();
     }
+  }
+
+  /** GameManager registers its pause handler here. */
+  onLockLost(callback) {
+    this._onLockLost = callback;
   }
 
   /** Enters first-person directly (round start, P key). Needs activation. */

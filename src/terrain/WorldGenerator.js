@@ -203,6 +203,33 @@ export default class WorldGenerator {
   }
 
   /**
+   * River-field info at a world point — used for bridge placement.
+   * @returns {{ r: number, inChannel: boolean, isFord: boolean }}
+   */
+  riverInfoAt(wx, wz) {
+    const r = this._riverNoise(wx * RIVER.fieldScale, wz * RIVER.fieldScale);
+    const inChannel = Math.abs(r) < RIVER.channelWidth;
+    const isFord = inChannel
+      && this._fordNoise(wx * RIVER.fordScale, wz * RIVER.fordScale) > RIVER.fordThreshold;
+    return { r, inChannel, isFord };
+  }
+
+  /**
+   * Unit direction crossing the river at a point (along the gradient of the
+   * river field — perpendicular to the channel).
+   */
+  riverCrossingDir(wx, wz) {
+    const e = 2.0;
+    const gx = this._riverNoise((wx + e) * RIVER.fieldScale, wz * RIVER.fieldScale)
+             - this._riverNoise((wx - e) * RIVER.fieldScale, wz * RIVER.fieldScale);
+    const gz = this._riverNoise(wx * RIVER.fieldScale, (wz + e) * RIVER.fieldScale)
+             - this._riverNoise(wx * RIVER.fieldScale, (wz - e) * RIVER.fieldScale);
+    const len = Math.sqrt(gx * gx + gz * gz);
+    if (len < 1e-6) return { x: 1, z: 0 };
+    return { x: gx / len, z: gz / len };
+  }
+
+  /**
    * Cell-to-cell passability by slope threshold (matches the legacy grid
    * behaviour). Heights are vertex samples at integer grid coords.
    */

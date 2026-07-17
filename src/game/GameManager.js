@@ -61,6 +61,8 @@ export class GameManager {
     this._onPointsCallback    = null;
     this._radarTimer          = 0;   // jam immunity remaining (s)
     this._rapidTimer          = 0;   // rapid-fire remaining (s)
+    this._overdriveTimer      = 0;   // speed boost remaining (s)
+    this._apTimer             = 0;   // double damage remaining (s)
     this._respawnQueue        = [];  // [{ kind, timer }]
     this._cullTimer           = 0;   // periodic sweep of dead/far entities
 
@@ -191,6 +193,18 @@ export class GameManager {
       this.drone.retask(this.playerTank.position);
       this._pushMessage('DRONE RETASKED — MOVING TO STATION');
       this._droneRangeTimer = 0;
+    });
+
+    // Esc pauses (orbit mode — under pointer lock the browser consumes Esc
+    // and the lock-lost handler below pauses instead) or resumes
+    this.inputManager.onKeyPress('Escape', () => {
+      if (this.state === GameState.PLAYING) this.pauseGame();
+      else if (this.state === GameState.PAUSED) this.resumeGame();
+    });
+
+    // Pointer-lock loss while playing in first person → pause menu
+    this.cameraController.onLockLost(() => {
+      if (this.state === GameState.PLAYING) this.pauseGame();
     });
 
     // Drone — passive observer, flies a circular orbit above the battlefield
@@ -348,6 +362,36 @@ export class GameManager {
     this.cameraController.enterFirstPerson(this._canvas);
   }
 
+  // ---------------------------------------------------------------------------
+  // Pause / resume
+  // ---------------------------------------------------------------------------
+
+  pauseGame() {
+    if (this.state !== GameState.PLAYING) return;
+    this.setState(GameState.PAUSED);
+    this.soundManager.engineOff();
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  /** Must be called from a user input event so pointer lock re-engages. */
+  resumeGame() {
+    if (this.state !== GameState.PAUSED) return;
+    this.setState(GameState.PLAYING);
+    this.inputManager.consumeMouseDelta(); // discard motion accumulated while paused
+    if (this.cameraController.isPinned) {
+      this.cameraController.enterFirstPerson(this._canvas);
+    }
+  }
+
+  quitToTitle() {
+    if (this.state !== GameState.PAUSED && this.state !== GameState.ROUND_END) return;
+    this.cameraController.isPinned = false;
+    if (document.pointerLockElement) document.exitPointerLock();
+    this.soundManager.engineOff();
+    this.aiController.setGameState(GameState.MENU);
+    this.setState(GameState.MENU);
+  }
+
   _handleHit(tank, projectile) {
     if (this.state !== GameState.PLAYING || this.pendingRoundResult !== null) return;
 
@@ -357,7 +401,7 @@ export class GameManager {
     if (wt?.penetrating === false && tank.isArmoured) return;
 
     const zone      = this._detectHitZone(tank, projectile);
-    const damage    = wt?.damage ?? 1;
+    const damage    = (wt?.damage ?? 1) * (projectile.damageMultiplier ?? 1);
     const destroyed = tank.takeHit(zone, damage);
 
     if (destroyed) {
@@ -547,7 +591,13 @@ export class GameManager {
     this._cullTimer       = 0;
     this._wasJamming      = false;
     this._droneRangeTimer = 0;
-    if (this.playerTank) this.playerTank.reloadFactor = 1;
+    this._overdriveTimer  = 0;
+    this._apTimer         = 0;
+    if (this.playerTank) {
+      this.playerTank.reloadFactor = 1;
+      this.playerTank.speedFactor  = 1;
+      this.playerTank.damageFactor = 1;
+    }
     if (typeof this._onPointsCallback === 'function') this._onPointsCallback(0);
   }
 
@@ -684,6 +734,12 @@ export class GameManager {
         this.playerTank.reloadFactor = 0.5;
       } else if (pu.type === 'radar') {
         this._radarTimer = POWERUP.radarDuration;
+      } else if (pu.type === 'overdrive') {
+        this._overdriveTimer = POWERUP.overdriveDuration;
+        this.playerTank.speedFactor = POWERUP.overdriveFactor;
+      } else if (pu.type === 'ap') {
+        this._apTimer = POWERUP.apDuration;
+        this.playerTank.damageFactor = POWERUP.apFactor;
       }
     }
   }
@@ -695,6 +751,14 @@ export class GameManager {
     }
     if (this._radarTimer > 0) {
       this._radarTimer -= delta;
+    }
+    if (this._overdriveTimer > 0) {
+      this._overdriveTimer -= delta;
+      if (this._overdriveTimer <= 0) this.playerTank.speedFactor = 1;
+    }
+    if (this._apTimer > 0) {
+      this._apTimer -= delta;
+      if (this._apTimer <= 0) this.playerTank.damageFactor = 1;
     }
   }
 

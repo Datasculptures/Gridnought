@@ -10,6 +10,8 @@ import GunsightHUD from './rendering/GunsightHUD.jsx';
 import ControlsHelp from './rendering/ControlsHelp.jsx';
 import ElevationIndicator from './rendering/ElevationIndicator.jsx';
 import MessageTicker from './rendering/MessageTicker.jsx';
+import PauseMenu from './rendering/PauseMenu.jsx';
+import DamageIndicator from './rendering/DamageIndicator.jsx';
 import './App.css';
 
 export default function App() {
@@ -114,6 +116,20 @@ export default function App() {
       <ControlsHelp gameState={gameState} />
 
       <MessageTicker gameManagerRef={gameManagerRef} gameState={gameState} />
+
+      <DamageIndicator playerTankRef={playerTankRef} gameState={gameState} />
+
+      <PauseMenu
+        gameState={gameState}
+        onResume={() => managerRef.current?.resumeGame()}
+        onRestart={() => {
+          const gm = managerRef.current;
+          if (!gm) return;
+          gm.restartRound();
+          terrainRef.current = gm.terrain;
+        }}
+        onQuit={() => managerRef.current?.quitToTitle()}
+      />
 
       <StartScreen
         visible={gameState === GameState.MENU}

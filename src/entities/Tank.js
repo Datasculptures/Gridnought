@@ -57,6 +57,8 @@ export default class Tank {
 
     // --- Power-up modifiers / audio ---
     this.reloadFactor = 1;     // <1 while rapid-fire is active
+    this.speedFactor  = 1;     // >1 while overdrive is active
+    this.damageFactor = 1;     // >1 while AP rounds are active
     this.soundManager = null;  // injected by GameManager
 
     // --- Machine gun burst state ---
@@ -276,6 +278,7 @@ export default class Tank {
       maxFlightTime: MACHINEGUN.maxFlightTime,
       canHitTanks:   false,
       weaponType:    WeaponType.LIGHT_MG,
+      damageMultiplier: this.damageFactor,
     });
     this.soundManager?.mg(this.position);
     if (this.effectsManager) {
@@ -347,8 +350,8 @@ export default class Tank {
 
     // 3. Target speed
     let targetSpeed = 0;
-    if      (moveInput > 0) targetSpeed =  TANK.moveSpeed;
-    else if (moveInput < 0) targetSpeed = -TANK.moveSpeed * TANK.reverseSpeedFactor;
+    if      (moveInput > 0) targetSpeed =  TANK.moveSpeed * this.speedFactor;
+    else if (moveInput < 0) targetSpeed = -TANK.moveSpeed * TANK.reverseSpeedFactor * this.speedFactor;
 
     // 4. Acceleration / deceleration
     const diff = targetSpeed - this.speed;
@@ -501,6 +504,7 @@ export default class Tank {
         owner:         this,
         color:         this.inputManager ? COLORS.projectile : COLORS.enemyProjectile,
         weaponType:    WeaponType.HEAVY_CANNON,
+        damageMultiplier: this.damageFactor,
         gravity:       0,          // cannon fires straight — no arc
         maxFlightTime: 40,         // long enough to cross the full map twice
         explodeOnKill: true,       // detonate on impact

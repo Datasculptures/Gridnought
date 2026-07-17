@@ -36,7 +36,29 @@ export const RIVER = {
   maxDepth: 9,                  // carve depth at channel centre
   fordScale: 0.02,              // ford noise frequency
   fordThreshold: 0.62,          // ford noise above this → shallow crossing
-  fordDepth: 1.8,               // depth at fords (passable)
+  fordDepth: 0.8,               // depth at fords — causeway-flat for bridges
+};
+
+// Bridges — idealized wireframe crossings generated at river fords
+export const BRIDGE = {
+  railLength: 30,
+  railHeight: 1.0,
+  railThickness: 0.35,
+  halfSpacing: 3.2,             // rail offset each side of the deck centreline
+  pylon: { width: 0.6, height: 1.6, depth: 0.6 },
+  minFordSamples: 6,            // chunk must contain this many ford cells
+  minOriginDist: 210,           // no bridges where rivers fade near spawn
+};
+
+// Water surface in deep ravines (visual only)
+export const WATER = {
+  enabled: true,
+  level: -5.5,                  // world Y — only deep river channels flood
+  fillColor: 0x1133cc,
+  fillOpacity: 0.28,
+  gridColor: 0x3366ff,
+  gridOpacity: 0.35,
+  gridDivisions: 4,
 };
 
 // Max delta time — clamp to this to prevent physics explosion on tab resume
@@ -379,10 +401,16 @@ export const POWERUP = {
   radarDuration: 25,       // seconds of jam immunity
   rapidDuration: 20,       // seconds of half reload time
   repairAmount: 3,         // HP restored to every armor zone
+  overdriveDuration: 20,   // seconds of boosted tank speed
+  overdriveFactor: 1.35,
+  apDuration: 25,          // seconds of double damage
+  apFactor: 2,
   types: {
-    repair: { color: 0x00ffff, label: 'REPAIR' },
-    rapid:  { color: 0xffff00, label: 'RAPID FIRE' },
-    radar:  { color: 0xff00ff, label: 'RADAR' },
+    repair:    { color: 0x00ffff, label: 'REPAIR' },
+    rapid:     { color: 0xffff00, label: 'RAPID FIRE' },
+    radar:     { color: 0xff00ff, label: 'RADAR' },
+    overdrive: { color: 0xff8800, label: 'OVERDRIVE' },
+    ap:        { color: 0xff3333, label: 'AP ROUNDS' },
   },
 };
 

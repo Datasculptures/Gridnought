@@ -35,6 +35,9 @@ export default class Projectile {
     // Weapon type — carries damage, penetrating flag, and range limit
     this.weaponType      = config.weaponType     ?? null;
 
+    // Damage multiplier from power-ups (AP rounds) on the owning tank
+    this.damageMultiplier = config.damageMultiplier ?? 1;
+
     // Mutable 3D velocity — gravity decrements .y each frame
     this._velocity    = config.velocity.clone();
     this._flightTime  = 0;

@@ -22,8 +22,20 @@ export default class Obstacle {
     const { x, z }     = descriptor.position;
     const { width: w, height: h, depth: d } = descriptor.dimensions;
 
-    // Y = terrain surface at placement position
-    this.y = terrain.getHeightAt(x, z);
+    // Base Y = lowest terrain height under the footprint (centre + rotated
+    // corners) minus a small sink, so obstacles on slopes never float with
+    // a gap under one edge — they bed into the high side instead.
+    const cosR = Math.cos(descriptor.rotation);
+    const sinR = Math.sin(descriptor.rotation);
+    const hw = w / 2, hd = d / 2;
+    let minH = terrain.getHeightAt(x, z);
+    for (const [lx, lz] of [[hw, hd], [hw, -hd], [-hw, hd], [-hw, -hd]]) {
+      const wx = x + lx * cosR + lz * sinR;
+      const wz = -lx * sinR + lz * cosR + z;
+      const hh = terrain.getHeightAt(wx, wz);
+      if (hh < minH) minH = hh;
+    }
+    this.y = minH - 0.15;
 
     // World-space position of the obstacle's base centre
     this.worldPosition = new THREE.Vector3(x, this.y, z);

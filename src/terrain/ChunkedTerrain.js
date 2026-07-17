@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CELL_SIZE, CHUNK, COLORS } from '../utils/constants.js';
+import { CELL_SIZE, CHUNK, COLORS, WATER } from '../utils/constants.js';
 import Materials from '../rendering/Materials.js';
 import WorldGenerator from './WorldGenerator.js';
 
@@ -151,14 +151,20 @@ export default class ChunkedTerrain {
     const verts  = N + 1;                 // vertices per side
     const origin = { x: cx * CHUNK.size, z: cz * CHUNK.size };
 
-    // Sample vertex heights from the world function
+    // Sample vertex heights from the world function; note whether a river
+    // channel actually runs deep here (water is river-only, not valleys)
     const heights = new Float32Array(verts * verts);
+    let hasDeepRiver = false;
     for (let vz = 0; vz < verts; vz++) {
       for (let vx = 0; vx < verts; vx++) {
-        heights[vz * verts + vx] = this.worldGen.heightAt(
-          origin.x + vx * CELL_SIZE,
-          origin.z + vz * CELL_SIZE,
-        );
+        const wx = origin.x + vx * CELL_SIZE;
+        const wz = origin.z + vz * CELL_SIZE;
+        const h  = this.worldGen.heightAt(wx, wz);
+        heights[vz * verts + vx] = h;
+        if (!hasDeepRiver && h < WATER.level
+            && this.worldGen.riverInfoAt(wx, wz).inChannel) {
+          hasDeepRiver = true;
+        }
       }
     }
 
@@ -200,7 +206,51 @@ export default class ChunkedTerrain {
     this.scene.add(gridMesh);
     this.solidMeshes.push(solidMesh);
 
-    return { cx, cz, heights, solidMesh, gridMesh, lineMat };
+    // Water surface — only in chunks where a river channel runs deep
+    let water = null;
+    if (WATER.enabled && hasDeepRiver) {
+      water = this._buildWater(origin);
+    }
+
+    return { cx, cz, heights, solidMesh, gridMesh, lineMat, water };
+  }
+
+  /** Translucent blue fill + coarse grid at the water level. */
+  _buildWater(origin) {
+    const fillGeo = new THREE.PlaneGeometry(CHUNK.size, CHUNK.size, 1, 1);
+    fillGeo.rotateX(-Math.PI / 2);
+    const fillMat = new THREE.MeshBasicMaterial({
+      color: WATER.fillColor,
+      transparent: true,
+      opacity: WATER.fillOpacity,
+      depthWrite: false,
+    });
+    const fill = new THREE.Mesh(fillGeo, fillMat);
+    fill.position.set(origin.x + CHUNK.size / 2, WATER.level, origin.z + CHUNK.size / 2);
+
+    // Coarse grid lines on the surface
+    const div  = WATER.gridDivisions;
+    const step = CHUNK.size / div;
+    const buf  = new Float32Array((div + 1) * 2 * 2 * 3);
+    let i = 0;
+    for (let k = 0; k <= div; k++) {
+      buf[i++] = origin.x + k * step; buf[i++] = WATER.level; buf[i++] = origin.z;
+      buf[i++] = origin.x + k * step; buf[i++] = WATER.level; buf[i++] = origin.z + CHUNK.size;
+      buf[i++] = origin.x;              buf[i++] = WATER.level; buf[i++] = origin.z + k * step;
+      buf[i++] = origin.x + CHUNK.size; buf[i++] = WATER.level; buf[i++] = origin.z + k * step;
+    }
+    const gridGeo = new THREE.BufferGeometry();
+    gridGeo.setAttribute('position', new THREE.BufferAttribute(buf, 3));
+    const gridMat = new THREE.LineBasicMaterial({
+      color: WATER.gridColor,
+      transparent: true,
+      opacity: WATER.gridOpacity,
+    });
+    const grid = new THREE.LineSegments(gridGeo, gridMat);
+
+    this.scene.add(fill);
+    this.scene.add(grid);
+    return { fill, fillMat, grid, gridMat };
   }
 
   _disposeChunk(chunk) {
@@ -212,6 +262,14 @@ export default class ChunkedTerrain {
     this.scene.remove(chunk.gridMesh);
     chunk.gridMesh.geometry.dispose();
     chunk.lineMat.dispose();
+    if (chunk.water) {
+      this.scene.remove(chunk.water.fill);
+      this.scene.remove(chunk.water.grid);
+      chunk.water.fill.geometry.dispose();
+      chunk.water.fillMat.dispose();
+      chunk.water.grid.geometry.dispose();
+      chunk.water.gridMat.dispose();
+    }
   }
 
   // ---------------------------------------------------------------------------

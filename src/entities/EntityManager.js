@@ -79,7 +79,7 @@ export default class EntityManager {
         const r  = e.hitRadius;
         if (dx * dx + dy * dy + dz * dz <= r * r) {
           proj.kill();
-          const destroyed = e.takeHit(proj.weaponType?.damage ?? 1);
+          const destroyed = e.takeHit((proj.weaponType?.damage ?? 1) * (proj.damageMultiplier ?? 1));
           if (destroyed && typeof this._onKill === 'function') {
             try {
               this._onKill(e, proj);

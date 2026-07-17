@@ -1,6 +1,6 @@
 import Obstacle from './Obstacle.js';
 import { seededRandom } from './noise.js';
-import { COLLISION, OBSTACLES, SPAWN, CHUNK, CELL_SIZE } from '../utils/constants.js';
+import { COLLISION, OBSTACLES, SPAWN, CHUNK, CELL_SIZE, BRIDGE } from '../utils/constants.js';
 
 /**
  * Chunk-based obstacle system for the infinite world.
@@ -72,12 +72,71 @@ export default class ObstacleManager {
       default: break;
     }
 
+    // Bridge structures at river ford crossings (any biome)
+    this._genBridge(descriptors, origin);
+
     const obstacles = [];
     for (const desc of descriptors) {
-      if (!this._placementOk(desc.position.x, desc.position.z)) continue;
+      if (!desc.skipFilter && !this._placementOk(desc.position.x, desc.position.z)) continue;
       obstacles.push(new Obstacle(this.scene, desc, this.terrain));
     }
     this._byChunk.set(key, obstacles);
+  }
+
+  /**
+   * Scans the chunk for a river ford; if one is present, assembles the
+   * standard bridge over it: two guard rails along the crossing direction
+   * and a pylon at each rail end. The ford terrain itself is causeway-flat,
+   * so the tank drives the deck line between the rails.
+   */
+  _genBridge(out, origin) {
+    const wg = this.terrain.worldGen;
+
+    // Ford cells in this chunk (coarse 4-unit scan)
+    let n = 0, sx = 0, sz = 0;
+    for (let dz = 2; dz < CHUNK.size; dz += 4) {
+      for (let dx = 2; dx < CHUNK.size; dx += 4) {
+        const wx = origin.x + dx, wz = origin.z + dz;
+        if (wg.riverInfoAt(wx, wz).isFord) { n++; sx += wx; sz += wz; }
+      }
+    }
+    if (n < BRIDGE.minFordSamples) return;
+
+    const cx = sx / n, cz = sz / n;
+    if (Math.sqrt(cx * cx + cz * cz) < BRIDGE.minOriginDist) return; // rivers fade near spawn
+
+    // Crossing direction (perpendicular to the channel) and its normal
+    const dir  = wg.riverCrossingDir(cx, cz);
+    const perp = { x: -dir.z, z: dir.x };
+    // Box local +X maps to world (cosR, -sinR): align local X with `dir`
+    const rot = Math.atan2(-dir.z, dir.x);
+
+    // Guard rails either side of the deck
+    for (const s of [-1, 1]) {
+      out.push({
+        type: 'wall',
+        skipFilter: true,
+        position: {
+          x: cx + perp.x * BRIDGE.halfSpacing * s,
+          z: cz + perp.z * BRIDGE.halfSpacing * s,
+        },
+        rotation: rot,
+        dimensions: { width: BRIDGE.railLength, height: BRIDGE.railHeight, depth: BRIDGE.railThickness },
+      });
+      // Pylons at both ends of this rail
+      for (const e of [-1, 1]) {
+        out.push({
+          type: 'cube',
+          skipFilter: true,
+          position: {
+            x: cx + perp.x * BRIDGE.halfSpacing * s + dir.x * (BRIDGE.railLength / 2) * e,
+            z: cz + perp.z * BRIDGE.halfSpacing * s + dir.z * (BRIDGE.railLength / 2) * e,
+          },
+          rotation: rot,
+          dimensions: { ...BRIDGE.pylon },
+        });
+      }
+    }
   }
 
   /** Common placement filter: spawn clearance, slope, river channels. */
