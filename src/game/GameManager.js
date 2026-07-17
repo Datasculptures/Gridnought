@@ -763,8 +763,10 @@ export class GameManager {
   }
 
   /**
-   * Periodic sweep: removes long-dead entities and pickups left far behind,
-   * so the registry stays small on long drives.
+   * Periodic sweep: entities left beyond the loaded terrain ring are
+   * removed (they would otherwise float in the void once their chunks
+   * unload). Culled vehicles re-enter the respawn queue so the world
+   * stays populated near the player; a stranded enemy tank relocates.
    */
   _cullFarEntities(delta) {
     this._cullTimer += delta;
@@ -774,16 +776,40 @@ export class GameManager {
     const px = this.playerTank.position.x;
     const pz = this.playerTank.position.z;
     const em = this.entityManager;
+    const FAR2 = 350 * 350; // beyond the 7×7 chunk ring (±224u)
+
     for (let i = em.entities.length - 1; i >= 0; i--) {
       const e = em.entities[i];
       const dx = e.position.x - px;
       const dz = e.position.z - pz;
-      const far = (dx * dx + dz * dz) > 400 * 400;
+      const far = (dx * dx + dz * dz) > FAR2;
       const doneDead = !e.isAlive
         && (!e.destructionEffect || e.destructionEffect.isComplete);
-      if ((far && e.kind === 'powerup') || (doneDead && far) || (doneDead && e.kind === 'powerup')) {
+      if (far || (doneDead && e.kind === 'powerup')) {
+        // Left-behind vehicles come back near the player after a delay
+        if (far && e.isAlive && (e.kind === 'truck' || e.kind === 'apc' || e.kind === 'jammer')) {
+          this._respawnQueue.push({ kind: e.kind, timer: 8 });
+        }
         e.dispose();
         em.entities.splice(i, 1);
+      } else if (doneDead && !far) {
+        // Finished corpses near the player can go too
+        e.dispose();
+        em.entities.splice(i, 1);
+      }
+    }
+
+    // Enemy tank stranded outside the loaded world → relocate to the hunt
+    const et = this.enemyTank;
+    if (et.isAlive) {
+      const dx = et.position.x - px;
+      const dz = et.position.z - pz;
+      if ((dx * dx + dz * dz) > 450 * 450) {
+        const pos = this._findClearPosNearPlayer(ENDLESS.respawnMinDist, ENDLESS.respawnMaxDist);
+        et._spawnConfig = { ...pos, heading: Math.random() * Math.PI * 2 };
+        et.reset(et._spawnConfig);
+        this.aiController.reset();
+        this.aiController.generatePatrolWaypoints();
       }
     }
   }

@@ -89,6 +89,7 @@ export const CAMERA = {
   initialPitch: Math.PI / 4,
   minPitch: Math.PI / 18,   // ~10 degrees
   maxPitch: Math.PI * 0.47, // ~85 degrees
+  maxPanRadius: 120,        // orbit pan limit around the player anchor
 };
 
 // Whitelisted input keys — InputManager ignores all others

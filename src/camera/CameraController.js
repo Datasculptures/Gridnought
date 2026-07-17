@@ -25,6 +25,9 @@ export default class CameraController {
     this.playerTank  = null;
     this._canvas     = null;
 
+    // Orbit-mode pan offset around the player anchor (arrow keys)
+    this.panOffset   = { x: 0, z: 0 };
+
     // Store bound wheel handler so it can be removed in dispose()
     this._onWheel = (event) => {
       if (!this.isPinned) {
@@ -61,6 +64,9 @@ export default class CameraController {
       this.enterFirstPerson(canvas);
     } else {
       this.isPinned = false;
+      // Re-centre the overview on the tank when dropping to third person
+      this.panOffset.x = 0;
+      this.panOffset.z = 0;
       if (document.pointerLockElement) document.exitPointerLock();
     }
   }
@@ -114,6 +120,9 @@ export default class CameraController {
 
     } else {
       // --- Free orbit mode ---
+      // The orbit is anchored to the player tank (the only fixed reference
+      // in an infinite streaming world); arrow keys pan a bounded offset
+      // around it so terrain is always in view.
 
       // Rotation
       if (input.isKeyDown('KeyQ')) this.yaw -= CAMERA.rotateSpeed;
@@ -127,8 +136,18 @@ export default class CameraController {
       if (input.isKeyDown('ArrowLeft'))  { panX += Math.cos(this.yaw);  panZ -= Math.sin(this.yaw); }
       if (input.isKeyDown('ArrowRight')) { panX -= Math.cos(this.yaw);  panZ += Math.sin(this.yaw); }
 
-      this.target.x += panX * CAMERA.panSpeed;
-      this.target.z += panZ * CAMERA.panSpeed;
+      this.panOffset.x += panX * CAMERA.panSpeed;
+      this.panOffset.z += panZ * CAMERA.panSpeed;
+      // Clamp the pan so the view can't wander off the loaded chunk ring
+      const panR = Math.sqrt(this.panOffset.x ** 2 + this.panOffset.z ** 2);
+      if (panR > CAMERA.maxPanRadius) {
+        this.panOffset.x *= CAMERA.maxPanRadius / panR;
+        this.panOffset.z *= CAMERA.maxPanRadius / panR;
+      }
+
+      const anchor = this.playerTank ? this.playerTank.position : { x: 0, z: 0 };
+      this.target.x = anchor.x + this.panOffset.x;
+      this.target.z = anchor.z + this.panOffset.z;
 
       // Keep look-at point on the terrain surface
       this.target.y = this.terrain.getHeightAt(this.target.x, this.target.z);
