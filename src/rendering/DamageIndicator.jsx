@@ -90,6 +90,9 @@ export default function DamageIndicator({ playerTankRef, gameState }) {
         left: 14,
         top: '50%',
         transform: 'translateY(-50%)',
+        // Explicit CSS size — overrides the global canvas { 100vw/100vh } rule
+        width: W,
+        height: H,
         pointerEvents: 'none',
         zIndex: 11,
         opacity: 0.9,
