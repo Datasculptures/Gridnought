@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { GameManager } from './game/GameManager.js';
 import GameState from './game/GameState.js';
 import HUD from './rendering/HUD.jsx';
-import StartScreen from './rendering/StartScreen.jsx';
+import MenuScreen from './rendering/MenuScreen.jsx';
 import ResultsScreen from './rendering/ResultsScreen.jsx';
 import Minimap from './rendering/Minimap.jsx';
 import AimIndicator from './rendering/AimIndicator.jsx';
@@ -10,7 +10,6 @@ import GunsightHUD from './rendering/GunsightHUD.jsx';
 import ControlsHelp from './rendering/ControlsHelp.jsx';
 import ElevationIndicator from './rendering/ElevationIndicator.jsx';
 import MessageTicker from './rendering/MessageTicker.jsx';
-import PauseMenu from './rendering/PauseMenu.jsx';
 import DamageIndicator from './rendering/DamageIndicator.jsx';
 import './App.css';
 
@@ -18,7 +17,6 @@ export default function App() {
   const canvasRef            = useRef(null);
   const managerRef           = useRef(null);
   const playerTankRef        = useRef(null);
-  const enemyTankRef         = useRef(null);
   const terrainRef           = useRef(null);
   const obstacleManagerRef   = useRef(null);
   const projectileManagerRef = useRef(null);
@@ -47,7 +45,6 @@ export default function App() {
 
     managerRef.current           = gm;
     playerTankRef.current        = gm.playerTank;
-    enemyTankRef.current         = gm.enemyTank;
     terrainRef.current           = gm.terrain;
     obstacleManagerRef.current   = gm.obstacleManager;
     projectileManagerRef.current = gm.projectileManager;
@@ -56,20 +53,27 @@ export default function App() {
     return () => {
       gm.dispose();
       playerTankRef.current        = null;
-      enemyTankRef.current         = null;
       terrainRef.current           = null;
       obstacleManagerRef.current   = null;
       projectileManagerRef.current = null;
     };
   }, []);
 
-  const handleStart = (mapType = 'random') => {
+  const handleStart = () => {
     const gm = managerRef.current;
     if (!gm) return;
-    gm.setMapTypePreference(mapType);
-    gm.startRound();
-    // Update terrain ref — startRound() may have rebuilt the terrain
+    // From the pause screen this abandons the current run and starts fresh
+    if (gm.state === 'PAUSED') gm.restartRound();
+    else gm.startRound();
+    // Update terrain ref — the round start rebuilds the terrain
     terrainRef.current = gm.terrain;
+  };
+
+  const handleQuit = () => {
+    // Tauri desktop window; falls back to window.close() in a plain browser
+    const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.();
+    if (tauriWin) tauriWin.close();
+    else window.close();
   };
 
   const handlePlayAgain = () => {
@@ -97,7 +101,6 @@ export default function App() {
         terrainRef={terrainRef}
         obstacleManagerRef={obstacleManagerRef}
         playerTankRef={playerTankRef}
-        enemyTankRef={enemyTankRef}
         projectileManagerRef={projectileManagerRef}
         gameManagerRef={gameManagerRef}
         gameState={gameState}
@@ -119,21 +122,11 @@ export default function App() {
 
       <DamageIndicator playerTankRef={playerTankRef} gameState={gameState} />
 
-      <PauseMenu
+      <MenuScreen
         gameState={gameState}
         onResume={() => managerRef.current?.resumeGame()}
-        onRestart={() => {
-          const gm = managerRef.current;
-          if (!gm) return;
-          gm.restartRound();
-          terrainRef.current = gm.terrain;
-        }}
-        onQuit={() => managerRef.current?.quitToTitle()}
-      />
-
-      <StartScreen
-        visible={gameState === GameState.MENU}
         onStart={handleStart}
+        onQuit={handleQuit}
       />
 
       <ResultsScreen

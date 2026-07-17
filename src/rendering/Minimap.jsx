@@ -34,7 +34,6 @@ export default function Minimap({
   terrainRef,
   obstacleManagerRef,
   playerTankRef,
-  enemyTankRef,
   projectileManagerRef,
   gameManagerRef,
   gameState,
@@ -148,28 +147,28 @@ export default function Minimap({
       const gm    = gameManagerRef?.current;
       const drone = gm?.drone ?? null;
 
-      // Enemy tank — only if player or drone has LOS
-      const enemy = enemyTankRef.current;
-      if (enemy && enemy.isAlive && inView(enemy.position.x, enemy.position.z)) {
+      // Enemy tanks (threat pool) — only if player or drone has LOS
+      for (const u of (gm?.enemyUnits ?? [])) {
+        const enemy = u.tank;
+        if (!enemy.isAlive || !inView(enemy.position.x, enemy.position.z)) continue;
         const ety = enemy.position.y + 0.85;
-        if (hasLOS(om, player, drone, enemy.position.x, ety, enemy.position.z)) {
-          const px  = w2m(enemy.position.x, cx);
-          const py  = w2m(enemy.position.z, cz);
-          const fwd = enemy.getForwardDirection();
-          ctx.fillStyle = MINIMAP.enemyColor;
-          ctx.beginPath();
-          ctx.arc(px, py, MINIMAP.tankRadius, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.strokeStyle = MINIMAP.enemyColor;
-          ctx.lineWidth   = 1.5;
-          ctx.beginPath();
-          ctx.moveTo(px, py);
-          ctx.lineTo(
-            px + fwd.x * MINIMAP.tankRadius * 2.2,
-            py + fwd.z * MINIMAP.tankRadius * 2.2,
-          );
-          ctx.stroke();
-        }
+        if (!hasLOS(om, player, drone, enemy.position.x, ety, enemy.position.z)) continue;
+        const px  = w2m(enemy.position.x, cx);
+        const py  = w2m(enemy.position.z, cz);
+        const fwd = enemy.getForwardDirection();
+        ctx.fillStyle = MINIMAP.enemyColor;
+        ctx.beginPath();
+        ctx.arc(px, py, MINIMAP.tankRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = MINIMAP.enemyColor;
+        ctx.lineWidth   = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(
+          px + fwd.x * MINIMAP.tankRadius * 2.2,
+          py + fwd.z * MINIMAP.tankRadius * 2.2,
+        );
+        ctx.stroke();
       }
 
       // Registered entities — per-kind styling
@@ -256,7 +255,7 @@ export default function Minimap({
 
     rafId = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafId);
-  }, [gameState, terrainRef, obstacleManagerRef, playerTankRef, enemyTankRef, projectileManagerRef, gameManagerRef]);
+  }, [gameState, terrainRef, obstacleManagerRef, playerTankRef, projectileManagerRef, gameManagerRef]);
 
   if (gameState !== GameState.PLAYING && gameState !== GameState.ROUND_END && gameState !== GameState.MENU) return null;
 

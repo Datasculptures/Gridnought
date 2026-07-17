@@ -1,6 +1,6 @@
 import Obstacle from './Obstacle.js';
 import { seededRandom } from './noise.js';
-import { COLLISION, OBSTACLES, SPAWN, CHUNK, CELL_SIZE, BRIDGE } from '../utils/constants.js';
+import { COLLISION, OBSTACLES, SPAWN, CHUNK, CELL_SIZE, BRIDGE, CITY } from '../utils/constants.js';
 
 /**
  * Chunk-based obstacle system for the infinite world.
@@ -139,13 +139,14 @@ export default class ObstacleManager {
     }
   }
 
-  /** Common placement filter: spawn clearance, slope, river channels. */
+  /** Common placement filter: spawn clearance, slope, rivers, roads. */
   _placementOk(x, z) {
     for (const sp of [SPAWN.player, SPAWN.enemy]) {
       const dx = x - sp.x, dz = z - sp.z;
       if (dx * dx + dz * dz < 15 * 15) return false;
     }
-    if (this.terrain.getHeightAt(x, z) < -1.2) return false; // river channel
+    if (this.terrain.getHeightAt(x, z) < -1.2) return false;        // river channel
+    if (this.terrain.worldGen.roadFactorAt(x, z) > 0.1) return false; // keep roads clear
 
     const normal        = this.terrain.getNormalAt(x, z);
     const normalY       = Math.min(1, Math.max(-1, normal.y));
@@ -186,12 +187,15 @@ export default class ObstacleManager {
   }
 
   /**
-   * City buildings on a global 32-unit block grid, so streets run straight
-   * across chunk borders. Each block is deterministic from its own grid
-   * coords — neighbouring chunks agree on shared districts.
+   * City districts on a global street lattice, so streets run straight
+   * across chunk borders. Every CITY.avenueEvery-th grid line is a wide
+   * avenue; buildings set back accordingly. Height falls off from the
+   * downtown core (biome cell centre): towers → mid-rise → low outskirts.
+   * Buildings are composed of 1-3 axis-aligned boxes for L-shapes and
+   * podium-plus-tower forms — abstracted but recognisably urban.
    */
   _genCityBlocks(out, origin) {
-    const BLOCK = 32;
+    const BLOCK = CITY.blockSize;
     const b0x = Math.floor(origin.x / BLOCK);
     const b0z = Math.floor(origin.z / BLOCK);
     const blocksPerChunk = CHUNK.size / BLOCK; // 2
@@ -201,9 +205,10 @@ export default class ObstacleManager {
         const cxw = bx * BLOCK + BLOCK / 2;
         const czw = bz * BLOCK + BLOCK / 2;
 
-        // Only blocks whose centre is city-dominant get buildings — this
-        // erodes the district naturally at biome borders.
+        // Only city-dominant blocks build — erodes districts at borders
         if (this.terrain.biomeAt(cxw, czw) !== 'city') continue;
+        // Intercity roads become main streets — keep their blocks open
+        if (this.terrain.worldGen.roadFactorAt(cxw, czw) > 0.1) continue;
 
         let h = (this.terrain.seed | 0) ^ 0x1b873593;
         h = Math.imul(h ^ bx, 0x9e3779b1);
@@ -211,36 +216,77 @@ export default class ObstacleManager {
         h ^= h >>> 15;
         const rng = seededRandom(h | 0);
 
-        const roll = rng();
-        if (roll < 0.15) continue; // plaza / park
+        // Distance from the downtown core sets the height tier
+        const weights = this.terrain.worldGen.getBiomeWeights(cxw, czw);
+        let best = weights[0];
+        for (const e of weights) if (e.weight > best.weight) best = e;
+        const dist = Math.hypot(cxw - best.cell.centerX, czw - best.cell.centerZ);
+        const tier = Math.max(0, 1 - dist / (240 * CITY.coreRadius)); // 1 = core
 
-        if (roll < 0.70) {
-          // Single building
-          const w = 10 + Math.floor(rng() * 9);
-          const d = 10 + Math.floor(rng() * 9);
-          const ht = 4 + Math.floor(rng() * 9);
-          out.push({ type: 'cityBlock', position: { x: cxw, z: czw }, rotation: 0,
-            dimensions: { width: w, height: ht, depth: d } });
+        // Street hierarchy: setback per side (avenue vs minor street)
+        const insetW = (bx     % CITY.avenueEvery === 0) ? CITY.avenueInset : CITY.streetInset;
+        const insetE = ((bx + 1) % CITY.avenueEvery === 0) ? CITY.avenueInset : CITY.streetInset;
+        const insetN = (bz     % CITY.avenueEvery === 0) ? CITY.avenueInset : CITY.streetInset;
+        const insetS = ((bz + 1) % CITY.avenueEvery === 0) ? CITY.avenueInset : CITY.streetInset;
+        const areaW = BLOCK - insetW - insetE;   // buildable width
+        const areaD = BLOCK - insetN - insetS;   // buildable depth
+        const midX  = bx * BLOCK + insetW + areaW / 2;
+        const midZ  = bz * BLOCK + insetN + areaD / 2;
+
+        const box = (x, z, w, d, ht) => out.push({
+          type: 'cityBlock', position: { x, z }, rotation: 0,
+          dimensions: { width: w, height: ht, depth: d },
+        });
+
+        // Empty blocks (plazas/parks) get rarer downtown
+        if (rng() < 0.20 - tier * 0.12) continue;
+
+        const maxH = 3 + tier * tier * (CITY.maxHeight - 3);
+
+        if (tier > 0.6) {
+          // Downtown: podium + offset tower, or a tall slab
+          if (rng() < 0.6) {
+            box(midX, midZ, areaW, areaD, 4 + Math.floor(rng() * 3));      // podium
+            const tw = areaW * (0.45 + rng() * 0.2);
+            const td = areaD * (0.45 + rng() * 0.2);
+            const ox = (rng() - 0.5) * (areaW - tw) * 0.8;
+            const oz = (rng() - 0.5) * (areaD - td) * 0.8;
+            box(midX + ox, midZ + oz, tw, td, maxH * (0.7 + rng() * 0.3)); // tower
+          } else {
+            const slabAlongX = rng() < 0.5;
+            box(midX, midZ,
+              slabAlongX ? areaW : areaW * 0.45,
+              slabAlongX ? areaD * 0.45 : areaD,
+              maxH * (0.6 + rng() * 0.4));
+          }
+        } else if (tier > 0.3) {
+          // Mid-rise ring: L-shapes and paired slabs
+          const hA = 6 + rng() * (maxH - 6);
+          if (rng() < 0.55) {
+            // L-shape: long bar + perpendicular wing
+            const barD = areaD * (0.3 + rng() * 0.15);
+            box(midX, midZ - areaD / 2 + barD / 2, areaW, barD, hA);
+            const wingW = areaW * (0.3 + rng() * 0.15);
+            const side  = rng() < 0.5 ? -1 : 1;
+            box(midX + side * (areaW / 2 - wingW / 2), midZ + barD / 4,
+              wingW, areaD - barD, hA * (0.75 + rng() * 0.25));
+          } else {
+            // Two parallel slabs with a court between
+            const slabD = areaD * 0.32;
+            box(midX, midZ - areaD / 2 + slabD / 2, areaW, slabD, hA);
+            box(midX, midZ + areaD / 2 - slabD / 2, areaW, slabD, 6 + rng() * (maxH - 6));
+          }
         } else {
-          // Two buildings with an alley
-          const vertical = rng() < 0.5;
-          const bW = 8, alley = 5, off = bW / 2 + alley / 2;
-          const long = 14 + Math.floor(rng() * 5);
-          const ht   = 4 + Math.floor(rng() * 7);
-          for (const s of [-1, 1]) {
-            out.push({
-              type: 'cityBlock',
-              position: {
-                x: cxw + (vertical ? s * off : 0),
-                z: czw + (vertical ? 0 : s * off),
-              },
-              rotation: 0,
-              dimensions: {
-                width:  vertical ? bW : long,
-                height: ht,
-                depth:  vertical ? long : bW,
-              },
-            });
+          // Outskirts: one or two low buildings
+          const count = rng() < 0.5 ? 1 : 2;
+          for (let i = 0; i < count; i++) {
+            const w = areaW * (0.3 + rng() * 0.3);
+            const d = areaD * (0.3 + rng() * 0.3);
+            box(
+              midX + (rng() - 0.5) * (areaW - w),
+              midZ + (rng() - 0.5) * (areaD - d),
+              w, d, 3 + rng() * 5,
+            );
           }
         }
       }

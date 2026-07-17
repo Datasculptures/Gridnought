@@ -1,5 +1,5 @@
 import { createNoise2D, seededRandom } from './noise.js';
-import { BIOME, RIVER, TERRAIN } from '../utils/constants.js';
+import { BIOME, RIVER, TERRAIN, ROAD } from '../utils/constants.js';
 
 /**
  * Deterministic infinite-world generator.
@@ -199,7 +199,52 @@ export default class WorldGenerator {
       }
     }
 
+    // Road flatten — applied after the river carve so intercity roads run
+    // as causeways over water rather than being cut by every channel
+    const rf = this.roadFactorAt(wx, wz);
+    if (rf > 0) {
+      h = h * (1 - rf) + ROAD.height * rf;
+    }
+
     return h;
+  }
+
+  /**
+   * Road proximity factor at a world point: 1 on the road surface, easing
+   * to 0 at the shoulder. Roads run between the centres of adjacent city
+   * biome cells, cutting through whatever terrain lies between.
+   */
+  roadFactorAt(wx, wz) {
+    const ccx = Math.floor(wx / BIOME.size);
+    const ccz = Math.floor(wz / BIOME.size);
+    let best = 0;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const c = this.getBiomeCell(ccx + dx, ccz + dz);
+        if (c.type !== 'city') continue;
+        // Each city cell owns segments to its east and south city neighbours
+        for (const [nx, nz] of [[c.cx + 1, c.cz], [c.cx, c.cz + 1]]) {
+          const n = this.getBiomeCell(nx, nz);
+          if (n.type !== 'city') continue;
+          const f = this._segmentFactor(wx, wz, c.centerX, c.centerZ, n.centerX, n.centerZ);
+          if (f > best) best = f;
+        }
+      }
+    }
+    return best;
+  }
+
+  _segmentFactor(px, pz, ax, az, bx, bz) {
+    const abx = bx - ax, abz = bz - az;
+    const t = Math.max(0, Math.min(1,
+      ((px - ax) * abx + (pz - az) * abz) / (abx * abx + abz * abz)));
+    const dx = px - (ax + abx * t);
+    const dz = pz - (az + abz * t);
+    const d  = Math.sqrt(dx * dx + dz * dz);
+    if (d >= ROAD.shoulder)  return 0;
+    if (d <= ROAD.halfWidth) return 1;
+    let u = 1 - (d - ROAD.halfWidth) / (ROAD.shoulder - ROAD.halfWidth);
+    return u * u * (3 - 2 * u);
   }
 
   /**

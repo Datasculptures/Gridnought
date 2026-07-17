@@ -25,6 +25,11 @@ export default class CollisionManager {
     this._tanks.push(tank);
   }
 
+  /** Empties the tank list (rebuilt when the enemy pool is reset). */
+  clearTanks() {
+    this._tanks = [];
+  }
+
   /** Callback fired with (tank, projectile) when a tank is hit. */
   onHit(callback) {
     this._onHitCallback = callback;

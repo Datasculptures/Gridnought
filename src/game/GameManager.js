@@ -39,9 +39,8 @@ export class GameManager {
     this.cameraController     = null;
     this.movementValidator    = null;
     this.playerTank           = null;
-    this.enemyTank            = null;
+    this.enemyUnits           = []; // [{ tank, ai }] — threat-scaled pool
     this.projectileManager    = null;
-    this.aiController         = null;
     this.collisionManager     = null;
     this.obstacleManager      = null;
     this.effectsManager       = null;
@@ -71,6 +70,10 @@ export class GameManager {
     this._wasJamming          = false;
     this._droneRangeTimer     = 0;   // cooldown for repeated out-of-range alerts
     this._canvas              = null;
+
+    // Threat rating
+    this._threatSpawnTimer    = 0;
+    this._threatLevel         = 1;
 
     // Map type for current round + player-selected preference ('random' = pick randomly)
     this.mapType              = 'hills';
@@ -141,33 +144,14 @@ export class GameManager {
     // Wire player turret aiming
     this.playerTank.setAimDependencies(this.camera, this.projectileManager);
 
-    // Enemy tank (AI-controlled)
-    this.enemyTank = new Tank(this.scene, {
-      position: SPAWN.enemy,
-      color: COLORS.enemyTank,
-      terrain: this.terrain,
-      inputManager: null,
-      movementValidator: this.movementValidator,
-    });
-    this.enemyTank.setAimDependencies(null, this.projectileManager);
-
-    // AI controller — obstacle-aware
-    this.aiController = new AIController(
-      this.enemyTank, this.terrain, this.projectileManager, this.obstacleManager,
-    );
-    this.aiController.setTarget(this.playerTank);
-    this.enemyTank.setAIController(this.aiController);
-
     // Collision manager — obstacle-aware
     this.collisionManager = new CollisionManager(this.projectileManager, this.obstacleManager);
     this.collisionManager.registerTank(this.playerTank);
-    this.collisionManager.registerTank(this.enemyTank);
     this.collisionManager.onHit((tank, proj) => this._handleHit(tank, proj));
 
     // Effects (muzzle flash + hit sparks)
     this.effectsManager = new EffectsManager(this.scene);
     this.playerTank.effectsManager = this.effectsManager;
-    this.enemyTank.effectsManager  = this.effectsManager;
     this.projectileManager.setEffectsManager(this.effectsManager);
 
     // Orbit camera
@@ -213,13 +197,14 @@ export class GameManager {
     // Mine manager — generates 0-2 clusters of small red mines each round
     this.mineManager = new MineManager(this.scene);
     this.mineManager.generate(this.terrain, this.terrain.seed);
-    this.aiController.mineManager = this.mineManager;
 
     // Audio — synthesised retro sound (unlocks on first user gesture)
     this.soundManager = new SoundManager();
     this.soundManager.init();
     this.playerTank.soundManager = this.soundManager;
-    this.enemyTank.soundManager  = this.soundManager;
+
+    // First enemy tank of the threat pool (more join as the score climbs)
+    this._createEnemyUnit(SPAWN.enemy);
 
     // Unified entity registry + initial spawns (idle until the round starts)
     this.entityManager = new EntityManager();
@@ -262,9 +247,12 @@ export class GameManager {
     this.terrain.update(delta);
 
     if (this.state === GameState.PLAYING) {
-      this.aiController.update(delta);
       this.playerTank.update(delta);
-      this.enemyTank.update(delta);
+      for (const u of this.enemyUnits) {
+        u.ai.update(delta);
+        u.tank.update(delta);
+      }
+      this._updateThreat(delta);
 
       // Stream terrain chunks around the player
       this.terrain.setFocus(this.playerTank.position.x, this.playerTank.position.z);
@@ -317,7 +305,9 @@ export class GameManager {
     } else if (this.state === GameState.ROUND_END) {
       // Animate destruction effects on destroyed tanks + any lingering effects
       if (!this.playerTank.isAlive) this.playerTank.update(delta);
-      if (!this.enemyTank.isAlive) this.enemyTank.update(delta);
+      for (const u of this.enemyUnits) {
+        if (!u.tank.isAlive) u.tank.update(delta);
+      }
       this.entityManager.update(delta, this._entityCtx(), { deadOnly: true });
       this._setEnemyVisibility(true); // restore full visibility at round end
       this.soundManager.engineOff();
@@ -341,7 +331,7 @@ export class GameManager {
     this._resetEndlessState();
     this.regenerateTerrain();
     this.drone.reset(SPAWN.player);
-    this.aiController.setGameState(GameState.PLAYING);
+    for (const u of this.enemyUnits) u.ai.setGameState(GameState.PLAYING);
     this.setState(GameState.PLAYING);
     // Straight into the tank — first-person from the first frame.
     // Called from the start button/key event, so pointer lock is granted.
@@ -357,9 +347,94 @@ export class GameManager {
     this._resetEndlessState();
     this.regenerateTerrain();
     this.drone.reset(SPAWN.player);
-    this.aiController.setGameState(GameState.PLAYING);
+    for (const u of this.enemyUnits) u.ai.setGameState(GameState.PLAYING);
     this.setState(GameState.PLAYING);
     this.cameraController.enterFirstPerson(this._canvas);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Enemy tank pool (threat rating)
+  // ---------------------------------------------------------------------------
+
+  /** Creates a fully-wired AI enemy tank and adds it to the pool. */
+  _createEnemyUnit(spawn) {
+    const tank = new Tank(this.scene, {
+      position: { x: spawn.x, z: spawn.z, heading: spawn.heading ?? Math.random() * Math.PI * 2 },
+      color: COLORS.enemyTank,
+      terrain: this.terrain,
+      inputManager: null,
+      movementValidator: this.movementValidator,
+    });
+    tank.setAimDependencies(null, this.projectileManager);
+    tank.effectsManager = this.effectsManager;
+    tank.soundManager   = this.soundManager;
+
+    const ai = new AIController(tank, this.terrain, this.projectileManager, this.obstacleManager);
+    ai.setTarget(this.playerTank);
+    ai.mineManager = this.mineManager;
+    ai.setGameState(this.state ?? GameState.MENU);
+    tank.setAIController(ai);
+
+    this.collisionManager.registerTank(tank);
+    const unit = { tank, ai };
+    this.enemyUnits.push(unit);
+    return unit;
+  }
+
+  /** Current threat level and the enemy tank count it allows. */
+  _desiredEnemyTanks() {
+    return Math.min(
+      1 + Math.floor(this.points / ENDLESS.threatScoreStep),
+      ENDLESS.maxEnemyTanks,
+    );
+  }
+
+  /**
+   * Keeps enemy tank pressure matched to the threat level: revives dead
+   * pool tanks (or grows the pool) on a cooldown, expedited when no enemy
+   * tank is anywhere near the player — you can't just drive away from war.
+   */
+  _updateThreat(delta) {
+    // Announce threat level increases
+    const level = this._desiredEnemyTanks();
+    if (level > this._threatLevel) {
+      this._threatLevel = level;
+      this._pushMessage(`THREAT LEVEL ${level} — MORE ENEMY ARMOR ACTIVE`);
+    }
+
+    this._threatSpawnTimer -= delta;
+    const alive = this.enemyUnits.filter(u => u.tank.isAlive);
+    if (alive.length >= level) return;
+
+    // Expedite when nothing is hunting the player
+    const px = this.playerTank.position.x;
+    const pz = this.playerTank.position.z;
+    const anyNear = alive.some(u => {
+      const dx = u.tank.position.x - px;
+      const dz = u.tank.position.z - pz;
+      return (dx * dx + dz * dz) < ENDLESS.noTankNearbyDist ** 2;
+    });
+    if (!anyNear && this._threatSpawnTimer > ENDLESS.expeditedCooldown) {
+      this._threatSpawnTimer = ENDLESS.expeditedCooldown;
+    }
+    if (this._threatSpawnTimer > 0) return;
+    this._threatSpawnTimer = ENDLESS.tankSpawnCooldown;
+
+    const pos = this._findClearPosNearPlayer(ENDLESS.respawnMinDist, ENDLESS.respawnMaxDist);
+    const spawn = { ...pos, heading: Math.random() * Math.PI * 2 };
+    const dead = this.enemyUnits.find(u => !u.tank.isAlive);
+    if (dead) {
+      dead.tank._spawnConfig = spawn;
+      dead.tank.reset(spawn);
+      dead.ai.reset();
+      dead.ai.setGameState(GameState.PLAYING);
+      dead.ai.generatePatrolWaypoints();
+    } else {
+      const unit = this._createEnemyUnit(spawn);
+      unit.ai.setGameState(GameState.PLAYING);
+      unit.ai.generatePatrolWaypoints();
+    }
+    this._pushMessage('ENEMY ARMOR INBOUND');
   }
 
   // ---------------------------------------------------------------------------
@@ -388,7 +463,7 @@ export class GameManager {
     this.cameraController.isPinned = false;
     if (document.pointerLockElement) document.exitPointerLock();
     this.soundManager.engineOff();
-    this.aiController.setGameState(GameState.MENU);
+    for (const u of this.enemyUnits) u.ai.setGameState(GameState.MENU);
     this.setState(GameState.MENU);
   }
 
@@ -410,10 +485,9 @@ export class GameManager {
         // Player death ends the run
         this.pendingRoundResult = 'defeat';
         this.roundEndDelayTimer = ROUND.resultDisplayDelay;
-      } else if (!this.enemyTank.isAlive) {
-        // Endless mode: score the kill and schedule a replacement
+      } else {
+        // An enemy tank went down — the threat manager refills the pool
         this._addPoints(SCORE.enemyTank);
-        this._respawnQueue.push({ kind: 'tank', timer: ENDLESS.respawnDelay });
         this._pushMessage('ENEMY TANK DESTROYED');
       }
     } else {
@@ -697,12 +771,7 @@ export class GameManager {
         mineManager:       this.mineManager,
       };
 
-      if (entry.kind === 'tank') {
-        this.enemyTank._spawnConfig = { ...pos, heading: Math.random() * Math.PI * 2 };
-        this.enemyTank.reset(this.enemyTank._spawnConfig);
-        this.aiController.reset();
-        this.aiController.generatePatrolWaypoints();
-      } else if (entry.kind === 'truck') {
+      if (entry.kind === 'truck') {
         this.entityManager.add(new TruckVehicle(this.scene, { position: pos, ...base }));
       } else if (entry.kind === 'apc') {
         this.entityManager.add(new APCVehicle(this.scene, {
@@ -799,17 +868,17 @@ export class GameManager {
       }
     }
 
-    // Enemy tank stranded outside the loaded world → relocate to the hunt
-    const et = this.enemyTank;
-    if (et.isAlive) {
-      const dx = et.position.x - px;
-      const dz = et.position.z - pz;
+    // Enemy tanks stranded outside the loaded world → relocate to the hunt
+    for (const u of this.enemyUnits) {
+      if (!u.tank.isAlive) continue;
+      const dx = u.tank.position.x - px;
+      const dz = u.tank.position.z - pz;
       if ((dx * dx + dz * dz) > 450 * 450) {
         const pos = this._findClearPosNearPlayer(ENDLESS.respawnMinDist, ENDLESS.respawnMaxDist);
-        et._spawnConfig = { ...pos, heading: Math.random() * Math.PI * 2 };
-        et.reset(et._spawnConfig);
-        this.aiController.reset();
-        this.aiController.generatePatrolWaypoints();
+        u.tank._spawnConfig = { ...pos, heading: Math.random() * Math.PI * 2 };
+        u.tank.reset(u.tank._spawnConfig);
+        u.ai.reset();
+        u.ai.generatePatrolWaypoints();
       }
     }
   }
@@ -901,7 +970,9 @@ export class GameManager {
    * and enemy mines. Neutral entities (grey trucks) stay visible.
    */
   _setEnemyVisibility(visible) {
-    if (this.enemyTank?.group) this.enemyTank.group.visible = visible;
+    for (const u of this.enemyUnits) {
+      if (u.tank.group && u.tank.isAlive) u.tank.group.visible = visible;
+    }
     this.entityManager.setFactionVisibility('enemy', visible);
     if (this.mineManager) this.mineManager.setVisibility(visible);
   }
@@ -945,7 +1016,7 @@ export class GameManager {
     this.pendingRoundResult = null;
     this.roundEndDelayTimer = 0;
 
-    this.aiController.setGameState(GameState.ROUND_END);
+    for (const u of this.enemyUnits) u.ai.setGameState(GameState.ROUND_END);
     this.setState(GameState.ROUND_END);
 
     if (typeof this._roundEndCallback === 'function') {
@@ -1022,19 +1093,30 @@ export class GameManager {
     this.playerTank.movementValidator       = this.movementValidator;
     this.playerTank.reset(SPAWN.player);
 
-    this.enemyTank.terrain                  = this.terrain;
-    this.enemyTank.movementValidator        = this.movementValidator;
-    this.enemyTank.reset(SPAWN.enemy);
-
     this.projectileManager.terrain          = this.terrain;
 
-    // CollisionManager already holds the same obstacleManager reference — no change needed
-    // (obstacleManager was cleared and re-generated in-place above)
-
-    this.aiController.terrain               = this.terrain;
-    this.aiController.obstacleManager       = this.obstacleManager;
-    this.aiController.reset();
-    this.aiController.generatePatrolWaypoints();
+    // Enemy pool: a fresh run starts with a single tank — dispose extras,
+    // rewire the survivor to the new terrain, rebuild the collision list
+    while (this.enemyUnits.length > 1) {
+      const u = this.enemyUnits.pop();
+      u.ai.dispose();
+      u.tank.dispose();
+    }
+    this.collisionManager.clearTanks();
+    this.collisionManager.registerTank(this.playerTank);
+    for (const u of this.enemyUnits) {
+      u.tank.terrain           = this.terrain;
+      u.tank.movementValidator = this.movementValidator;
+      u.tank._spawnConfig      = SPAWN.enemy;
+      u.tank.reset(SPAWN.enemy);
+      u.ai.terrain             = this.terrain;
+      u.ai.obstacleManager     = this.obstacleManager;
+      u.ai.reset();
+      u.ai.generatePatrolWaypoints();
+      this.collisionManager.registerTank(u.tank);
+    }
+    this._threatLevel      = 1;
+    this._threatSpawnTimer = 0;
 
     // Regenerate mines on the new terrain
     this.mineManager.generate(this.terrain, this.terrain.seed);
@@ -1056,7 +1138,8 @@ export class GameManager {
    */
   _updateMobileEntityProvider() {
     this.movementValidator.setMobileEntityProvider(() => [
-      this.playerTank, this.enemyTank,
+      this.playerTank,
+      ...this.enemyUnits.map(u => u.tank),
       ...this.entityManager.getBlockers(),
     ]);
   }
@@ -1071,11 +1154,15 @@ export class GameManager {
       this._rafId = null;
     }
 
+    for (const u of this.enemyUnits) {
+      u.ai.dispose();
+      u.tank.dispose();
+    }
+    this.enemyUnits = [];
+
     const systems = [
       this.inputManager,
-      this.aiController,
       this.playerTank,
-      this.enemyTank,
       this.projectileManager,
       this.collisionManager,
       this.obstacleManager,
@@ -1116,9 +1203,7 @@ export class GameManager {
     this.cameraController     = null;
     this.movementValidator    = null;
     this.playerTank           = null;
-    this.enemyTank            = null;
     this.projectileManager    = null;
-    this.aiController         = null;
     this.collisionManager     = null;
     this.obstacleManager      = null;
     this.effectsManager       = null;

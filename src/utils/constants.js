@@ -50,6 +50,23 @@ export const BRIDGE = {
   minOriginDist: 210,           // no bridges where rivers fade near spawn
 };
 
+// Roads — flattened strips connecting adjacent city biome centres
+export const ROAD = {
+  halfWidth: 5,                 // full flat width = 10
+  shoulder: 13,                 // blend-to-terrain distance
+  height: 0.4,                  // road surface elevation
+};
+
+// City generation — abstracted but realistic districts
+export const CITY = {
+  blockSize: 32,                // global street lattice period
+  avenueEvery: 4,               // every Nth grid line is a major avenue
+  avenueInset: 8,               // building setback from an avenue
+  streetInset: 5,               // setback from a minor street
+  coreRadius: 0.5,              // height falloff radius (× BIOME.size)
+  maxHeight: 32,                // tallest downtown towers
+};
+
 // Water surface in deep ravines (visual only)
 export const WATER = {
   enabled: true,
@@ -420,6 +437,13 @@ export const ENDLESS = {
   respawnDelay: 30,        // seconds before a destroyed vehicle respawns
   respawnMinDist: 80,      // respawn ring around the player
   respawnMaxDist: 150,
+
+  // Threat rating — enemy tank pressure scales with score
+  maxEnemyTanks: 4,
+  threatScoreStep: 30,     // +1 concurrent enemy tank per this many points
+  tankSpawnCooldown: 14,   // seconds between threat spawns
+  expeditedCooldown: 5,    // faster spawn when no enemy tank is near
+  noTankNearbyDist: 260,   // "near" threshold for the expedite rule
   infantryCap: 24,         // max live infantry in the world
   infantrySafeRadius: 150, // no ambient infantry this close to the origin
   infantryBaseChance: 0.12,
