@@ -5,10 +5,9 @@ import { loadHighScores } from '../utils/highscores.js';
  * Full-screen title overlay shown while game state is MENU.
  * Props:
  *   onStart() — starts a round in the infinite world
- *   onAreaX() — navigates to the Area X showcase page
  *   visible: boolean
  */
-export default function StartScreen({ onStart, onAreaX, visible }) {
+export default function StartScreen({ onStart, visible }) {
   const [scores, setScores] = useState([]);
 
   useEffect(() => {
@@ -63,13 +62,6 @@ export default function StartScreen({ onStart, onAreaX, visible }) {
       </button>
       <div style={{ color: '#555', fontSize: 11, marginTop: 10, marginBottom: 24 }}>
         ENTER / SPACE
-      </div>
-
-      <button className="wireframe-btn" onClick={onAreaX}>
-        AREA X
-      </button>
-      <div style={{ color: '#555', fontSize: 11, marginTop: 10 }}>
-        UNIT SHOWCASE
       </div>
 
       {/* Arcade high-score table */}

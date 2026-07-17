@@ -445,7 +445,8 @@ export default class Tank {
         if (this._aimWorldYaw === null) {
           this._aimWorldYaw = this.heading + this.turretAngle;
         }
-        this._aimWorldYaw += d.x * SENS;
+        // Yaw increases counter-clockwise (left), so mouse-right subtracts
+        this._aimWorldYaw -= d.x * SENS;
         this._elevation = Math.max(
           TANK.barrel.minElevation,
           Math.min(TANK.barrel.maxElevation, this._elevation - d.y * SENS),

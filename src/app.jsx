@@ -9,7 +9,7 @@ import AimIndicator from './rendering/AimIndicator.jsx';
 import GunsightHUD from './rendering/GunsightHUD.jsx';
 import ControlsHelp from './rendering/ControlsHelp.jsx';
 import ElevationIndicator from './rendering/ElevationIndicator.jsx';
-import AreaX from './rendering/AreaX.jsx';
+import MessageTicker from './rendering/MessageTicker.jsx';
 import './App.css';
 
 export default function App() {
@@ -25,7 +25,6 @@ export default function App() {
   const [gameState,  setGameState]  = useState(GameState.MENU);
   const [gameResult, setGameResult] = useState(null);
   const [points,     setPoints]     = useState(0);
-  const [view,       setView]       = useState('game'); // 'game' | 'areax'
 
   useEffect(() => {
     const gm = new GameManager();
@@ -79,26 +78,6 @@ export default function App() {
     if (gm) terrainRef.current = gm.terrain;
   };
 
-  // R key — quick restart from any in-game state
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.code !== 'KeyR') return;
-      const gm = managerRef.current;
-      if (!gm) return;
-      if (gm.state === 'PLAYING' || gm.state === 'ROUND_END') {
-        setGameResult(null);
-        gm.restartRound();
-        terrainRef.current = gm.terrain;
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
-  if (view === 'areax') {
-    return <AreaX onBack={() => setView('game')} />;
-  }
-
   return (
     <>
       <canvas
@@ -134,10 +113,11 @@ export default function App() {
 
       <ControlsHelp gameState={gameState} />
 
+      <MessageTicker gameManagerRef={gameManagerRef} gameState={gameState} />
+
       <StartScreen
         visible={gameState === GameState.MENU}
         onStart={handleStart}
-        onAreaX={() => setView('areax')}
       />
 
       <ResultsScreen

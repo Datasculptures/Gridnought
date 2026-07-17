@@ -16,11 +16,20 @@ export default class Drone {
     this._angle     = Math.random() * Math.PI * 2; // random start position on orbit
     this.isAlive    = true;
     this.isArmoured = false;
-    // Orbit centre — drifts toward the focus (player) in the infinite world
-    this._center    = new THREE.Vector3(0, 0, 0);
+    // Station the drone circles. Fixed until retasked (R key).
+    this._center       = new THREE.Vector3(0, 0, 0);
+    this._targetCenter = new THREE.Vector3(0, 0, 0);
 
     this._buildMesh();
     scene.add(this.group);
+  }
+
+  /** Current orbit station (world XZ). */
+  get center() { return this._center; }
+
+  /** Orders the drone to fly to and circle a new point. */
+  retask(pos) {
+    this._targetCenter.set(pos.x, 0, pos.z);
   }
 
   /** World-space position of the drone centre. */
@@ -43,9 +52,14 @@ export default class Drone {
     return false;
   }
 
-  reset() {
+  /** Revives the drone and stations it over `pos` (default: world origin). */
+  reset(pos = null) {
     this.isAlive = true;
     if (this.group) this.group.visible = true;
+    const x = pos ? pos.x : 0;
+    const z = pos ? pos.z : 0;
+    this._center.set(x, 0, z);
+    this._targetCenter.set(x, 0, z);
   }
 
   // ---------------------------------------------------------------------------
@@ -94,20 +108,14 @@ export default class Drone {
   // Update
   // ---------------------------------------------------------------------------
 
-  /**
-   * @param {number} delta
-   * @param {THREE.Vector3|null} focus - orbit centre target (player position)
-   */
-  update(delta, focus = null) {
+  update(delta) {
     if (!this.isAlive) return;
     this._angle += DRONE.orbitSpeed * delta;
 
-    // Drift the orbit centre slowly toward the focus so the drone stays
-    // overhead as the player explores
-    if (focus) {
-      this._center.x += (focus.x - this._center.x) * Math.min(1, delta * 0.3);
-      this._center.z += (focus.z - this._center.z) * Math.min(1, delta * 0.3);
-    }
+    // Fly toward the tasked station (only moves after a retask order)
+    const k = Math.min(1, delta * DRONE.retaskLerp * 3);
+    this._center.x += (this._targetCenter.x - this._center.x) * k;
+    this._center.z += (this._targetCenter.z - this._center.z) * k;
 
     const x = this._center.x + Math.sin(this._angle) * DRONE.orbitRadius;
     const z = this._center.z + Math.cos(this._angle) * DRONE.orbitRadius;

@@ -76,6 +76,7 @@ export const VALID_KEYS = new Set([
   'ArrowUp', 'ArrowDown',            // camera pan
   'ArrowLeft', 'ArrowRight',         // camera pan
   'KeyP',                            // camera pin toggle
+  'KeyR',                            // retask drone
   'KeyX',                            // machine gun burst
   'Comma', 'Period',                 // barrel elevation down/up
   'Space',                           // future use
@@ -432,11 +433,20 @@ export const MINES = {
   minDistanceFromSpawn: 18,    // keep mines away from start areas
 };
 
-// Drone — passive observer flying in a circle above the battlefield
+// Drone — observer circling a tasked point; spots enemies for the minimap
 export const DRONE = {
-  orbitRadius:   75,    // world units from map centre
+  orbitRadius:   75,    // world units from the tasked centre
   orbitHeight:   30,    // units above Y=0 (clears tallest terrain)
   orbitSpeed:    0.3,   // radians / second (full circle ≈ 21 s)
   bobAmplitude:  2.0,   // gentle vertical oscillation
   bobFrequency:  0.6,   // Hz
+  range:         170,   // beyond this from the orbit centre → "out of range"
+  retaskLerp:    0.35,  // per-second approach rate when flying to a new station
+};
+
+// Bottom-of-screen event messages
+export const MESSAGES = {
+  displayDuration: 6,   // seconds before a message fades
+  maxVisible: 4,
+  droneRangeRepeat: 25, // seconds between repeated out-of-range reminders
 };

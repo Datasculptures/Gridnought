@@ -54,15 +54,20 @@ export default class CameraController {
    * @param {HTMLCanvasElement} canvas
    */
   toggleFirstPerson(canvas) {
-    this._canvas = canvas || this._canvas;
     if (!this.isPinned) {
-      this.isPinned = true;
-      if (this.playerTank) this.playerTank.enterFirstPerson();
-      this._canvas?.requestPointerLock?.();
+      this.enterFirstPerson(canvas);
     } else {
       this.isPinned = false;
       if (document.pointerLockElement) document.exitPointerLock();
     }
+  }
+
+  /** Enters first-person directly (round start, P key). Needs activation. */
+  enterFirstPerson(canvas) {
+    this._canvas = canvas || this._canvas;
+    this.isPinned = true;
+    if (this.playerTank) this.playerTank.enterFirstPerson();
+    this._canvas?.requestPointerLock?.();
   }
 
   /** Call from GameManager after the player tank is created. */

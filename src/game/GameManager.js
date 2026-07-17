@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK } from '../utils/constants.js';
+import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES } from '../utils/constants.js';
 import GameState from './GameState.js';
 import InputManager from '../input/InputManager.js';
 import ChunkedTerrain from '../terrain/ChunkedTerrain.js';
@@ -64,6 +64,12 @@ export class GameManager {
     this._respawnQueue        = [];  // [{ kind, timer }]
     this._cullTimer           = 0;   // periodic sweep of dead/far entities
 
+    // Event message feed (bottom-of-screen ticker)
+    this._onMessageCallback   = null;
+    this._wasJamming          = false;
+    this._droneRangeTimer     = 0;   // cooldown for repeated out-of-range alerts
+    this._canvas              = null;
+
     // Map type for current round + player-selected preference ('random' = pick randomly)
     this.mapType              = 'hills';
     this._mapTypePreference   = 'random';
@@ -76,6 +82,7 @@ export class GameManager {
   }
 
   init(canvasElement) {
+    this._canvas = canvasElement;
     // Renderer
     this.renderer = new THREE.WebGLRenderer({
       canvas: canvasElement,
@@ -178,6 +185,14 @@ export class GameManager {
       }
     });
 
+    // R retasks the drone to circle a point above the tank's position
+    this.inputManager.onKeyPress('KeyR', () => {
+      if (this.state !== GameState.PLAYING || !this.drone?.isAlive) return;
+      this.drone.retask(this.playerTank.position);
+      this._pushMessage('DRONE RETASKED — MOVING TO STATION');
+      this._droneRangeTimer = 0;
+    });
+
     // Drone — passive observer, flies a circular orbit above the battlefield
     this.drone = new Drone(this.scene);
 
@@ -275,7 +290,8 @@ export class GameManager {
       this.soundManager.setListenerPosition(this.playerTank.position.x, this.playerTank.position.z);
       this.soundManager.engine(Math.min(1, Math.abs(this.playerTank.speed) / TANK.moveSpeed));
 
-      this.drone.update(delta, this.playerTank.position);
+      this.drone.update(delta);
+      this._checkDroneRange(delta);
       this.effectsManager.update(delta);
 
       if (this.pendingRoundResult !== null) {
@@ -310,9 +326,12 @@ export class GameManager {
     this.roundEndDelayTimer = 0;
     this._resetEndlessState();
     this.regenerateTerrain();
-    this.drone.reset();
+    this.drone.reset(SPAWN.player);
     this.aiController.setGameState(GameState.PLAYING);
     this.setState(GameState.PLAYING);
+    // Straight into the tank — first-person from the first frame.
+    // Called from the start button/key event, so pointer lock is granted.
+    this.cameraController.enterFirstPerson(this._canvas);
   }
 
   /**
@@ -323,9 +342,10 @@ export class GameManager {
     this.roundEndDelayTimer = 0;
     this._resetEndlessState();
     this.regenerateTerrain();
-    this.drone.reset();
+    this.drone.reset(SPAWN.player);
     this.aiController.setGameState(GameState.PLAYING);
     this.setState(GameState.PLAYING);
+    this.cameraController.enterFirstPerson(this._canvas);
   }
 
   _handleHit(tank, projectile) {
@@ -350,9 +370,13 @@ export class GameManager {
         // Endless mode: score the kill and schedule a replacement
         this._addPoints(SCORE.enemyTank);
         this._respawnQueue.push({ kind: 'tank', timer: ENDLESS.respawnDelay });
+        this._pushMessage('ENEMY TANK DESTROYED');
       }
     } else {
       this.soundManager.clank(tank.position);
+      if (tank === this.playerTank) {
+        this._pushMessage(`WE'VE BEEN HIT — ${zone.replace('Side', ' side').toUpperCase()} ARMOR`);
+      }
     }
   }
 
@@ -519,8 +543,10 @@ export class GameManager {
     this.points        = 0;
     this._radarTimer   = 0;
     this._rapidTimer   = 0;
-    this._respawnQueue = [];
-    this._cullTimer    = 0;
+    this._respawnQueue    = [];
+    this._cullTimer       = 0;
+    this._wasJamming      = false;
+    this._droneRangeTimer = 0;
     if (this.playerTank) this.playerTank.reloadFactor = 1;
     if (typeof this._onPointsCallback === 'function') this._onPointsCallback(0);
   }
@@ -536,6 +562,35 @@ export class GameManager {
   /** React subscribes here to display the arcade score. */
   onPointsChange(callback) {
     this._onPointsCallback = callback;
+  }
+
+  /** React subscribes here for bottom-of-screen event messages. */
+  onMessage(callback) {
+    this._onMessageCallback = callback;
+  }
+
+  _pushMessage(text) {
+    if (typeof this._onMessageCallback === 'function') {
+      this._onMessageCallback(text);
+    }
+  }
+
+  /**
+   * Warns when the player has driven beyond the drone's surveillance range;
+   * repeats on a cooldown while out of range.
+   */
+  _checkDroneRange(delta) {
+    if (!this.drone?.isAlive) return;
+    this._droneRangeTimer -= delta;
+    const dx = this.playerTank.position.x - this.drone.center.x;
+    const dz = this.playerTank.position.z - this.drone.center.z;
+    const outOfRange = (dx * dx + dz * dz) > DRONE.range * DRONE.range;
+    if (outOfRange && this._droneRangeTimer <= 0) {
+      this._pushMessage('OUT OF DRONE RANGE — PRESS R TO RETASK');
+      this._droneRangeTimer = MESSAGES.droneRangeRepeat;
+    } else if (!outOfRange && this._droneRangeTimer > 0) {
+      this._droneRangeTimer = 0; // back in range — re-arm immediate warning
+    }
   }
 
   /** Fired by EntityManager whenever a registered entity is destroyed. */
@@ -621,6 +676,7 @@ export class GameManager {
       if (dx * dx + dz * dz > POWERUP.pickupRadius * POWERUP.pickupRadius) continue;
       pu.collect();
       this.soundManager.pickup();
+      this._pushMessage(`${POWERUP.types[pu.type]?.label ?? 'POWER-UP'} ACQUIRED`);
       if (pu.type === 'repair') {
         this.playerTank.repair(POWERUP.repairAmount);
       } else if (pu.type === 'rapid') {
@@ -729,6 +785,10 @@ export class GameManager {
     const jamming = this._radarTimer <= 0 && this.entityManager
       .alive(e => e.kind === 'jammer')
       .some(j => j.isJammingPosition(px, pz));
+
+    // Edge-triggered alert when jamming starts
+    if (jamming && !this._wasJamming) this._pushMessage('JAMMING DETECTED');
+    this._wasJamming = jamming;
 
     if (jamming) {
       this._jamFlickerTimer -= delta;
