@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER } from '../utils/constants.js';
+import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK } from '../utils/constants.js';
 import GameState from './GameState.js';
 import InputManager from '../input/InputManager.js';
 import ChunkedTerrain from '../terrain/ChunkedTerrain.js';
@@ -16,6 +16,8 @@ import TruckVehicle  from '../entities/TruckVehicle.js';
 import APCVehicle    from '../entities/APCVehicle.js';
 import JammerTruck   from '../entities/JammerTruck.js';
 import EntityManager from '../entities/EntityManager.js';
+import PowerUp from '../entities/PowerUp.js';
+import SoundManager from '../audio/SoundManager.js';
 import Drone from '../entities/Drone.js';
 import MineManager from '../entities/MineManager.js';
 
@@ -50,6 +52,17 @@ export class GameManager {
     this._jamFlickerTimer     = 0;
     this._jamVisible          = true;
     this.mineManager          = null;
+
+    // Audio
+    this.soundManager         = null;
+
+    // Endless mode: arcade points, power-up timers, vehicle respawns
+    this.points               = 0;
+    this._onPointsCallback    = null;
+    this._radarTimer          = 0;   // jam immunity remaining (s)
+    this._rapidTimer          = 0;   // rapid-fire remaining (s)
+    this._respawnQueue        = [];  // [{ kind, timer }]
+    this._cullTimer           = 0;   // periodic sweep of dead/far entities
 
     // Map type for current round + player-selected preference ('random' = pick randomly)
     this.mapType              = 'hills';
@@ -173,9 +186,19 @@ export class GameManager {
     this.mineManager.generate(this.terrain, this.terrain.seed);
     this.aiController.mineManager = this.mineManager;
 
+    // Audio — synthesised retro sound (unlocks on first user gesture)
+    this.soundManager = new SoundManager();
+    this.soundManager.init();
+    this.playerTank.soundManager = this.soundManager;
+    this.enemyTank.soundManager  = this.soundManager;
+
     // Unified entity registry + initial spawns (idle until the round starts)
     this.entityManager = new EntityManager();
+    this.entityManager.onKill((e, proj) => this._handleEntityKill(e, proj));
     this._spawnEntities();
+
+    // Distance-scaled ambient enemies + power-ups stream in with chunks
+    this._hookChunkSpawns();
 
     // Wire vehicle-blocking provider into the movement validator
     this._updateMobileEntityProvider();
@@ -242,6 +265,16 @@ export class GameManager {
       // Drone hit check
       this._checkDroneHits();
 
+      // Endless-mode systems
+      this._checkPowerUpPickup();
+      this._updatePowerUpTimers(delta);
+      this._updateRespawns(delta);
+      this._cullFarEntities(delta);
+
+      // Audio: listener follows player, engine hum tracks speed
+      this.soundManager.setListenerPosition(this.playerTank.position.x, this.playerTank.position.z);
+      this.soundManager.engine(Math.min(1, Math.abs(this.playerTank.speed) / TANK.moveSpeed));
+
       this.drone.update(delta, this.playerTank.position);
       this.effectsManager.update(delta);
 
@@ -257,6 +290,7 @@ export class GameManager {
       if (!this.enemyTank.isAlive) this.enemyTank.update(delta);
       this.entityManager.update(delta, this._entityCtx(), { deadOnly: true });
       this._setEnemyVisibility(true); // restore full visibility at round end
+      this.soundManager.engineOff();
       this.effectsManager.update(delta);
     }
 
@@ -274,6 +308,7 @@ export class GameManager {
   startRound() {
     this.pendingRoundResult = null;
     this.roundEndDelayTimer = 0;
+    this._resetEndlessState();
     this.regenerateTerrain();
     this.drone.reset();
     this.aiController.setGameState(GameState.PLAYING);
@@ -286,11 +321,8 @@ export class GameManager {
   restartRound() {
     this.pendingRoundResult = null;
     this.roundEndDelayTimer = 0;
-    // Always pick a random map on Play Again, regardless of player preference
-    const saved = this._mapTypePreference;
-    this._mapTypePreference = 'random';
+    this._resetEndlessState();
     this.regenerateTerrain();
-    this._mapTypePreference = saved;
     this.drone.reset();
     this.aiController.setGameState(GameState.PLAYING);
     this.setState(GameState.PLAYING);
@@ -309,12 +341,18 @@ export class GameManager {
     const destroyed = tank.takeHit(zone, damage);
 
     if (destroyed) {
-      const isPlayerDead = !this.playerTank.isAlive;
-      const isEnemyDead  = !this.enemyTank.isAlive;
-      if (isPlayerDead || isEnemyDead) {
-        this.pendingRoundResult = isPlayerDead ? 'defeat' : 'victory';
+      this.soundManager.explosion(tank.position);
+      if (!this.playerTank.isAlive) {
+        // Player death ends the run
+        this.pendingRoundResult = 'defeat';
         this.roundEndDelayTimer = ROUND.resultDisplayDelay;
+      } else if (!this.enemyTank.isAlive) {
+        // Endless mode: score the kill and schedule a replacement
+        this._addPoints(SCORE.enemyTank);
+        this._respawnQueue.push({ kind: 'tank', timer: ENDLESS.respawnDelay });
       }
+    } else {
+      this.soundManager.clank(tank.position);
     }
   }
 
@@ -472,6 +510,214 @@ export class GameManager {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Endless mode: scoring, power-ups, respawns, distance scaling
+  // ---------------------------------------------------------------------------
+
+  /** Resets score, power-up timers, and the respawn queue for a new run. */
+  _resetEndlessState() {
+    this.points        = 0;
+    this._radarTimer   = 0;
+    this._rapidTimer   = 0;
+    this._respawnQueue = [];
+    this._cullTimer    = 0;
+    if (this.playerTank) this.playerTank.reloadFactor = 1;
+    if (typeof this._onPointsCallback === 'function') this._onPointsCallback(0);
+  }
+
+  _addPoints(n) {
+    if (!n) return;
+    this.points += n;
+    if (typeof this._onPointsCallback === 'function') {
+      this._onPointsCallback(this.points);
+    }
+  }
+
+  /** React subscribes here to display the arcade score. */
+  onPointsChange(callback) {
+    this._onPointsCallback = callback;
+  }
+
+  /** Fired by EntityManager whenever a registered entity is destroyed. */
+  _handleEntityKill(e, _proj) {
+    this._addPoints(e.scoreValue);
+    this.soundManager.explosion(e.position);
+
+    // Supply trucks drop a random power-up where they died
+    if (e.kind === 'truck') {
+      const types = Object.keys(POWERUP.types);
+      const type  = types[Math.floor(Math.random() * types.length)];
+      this.entityManager.add(new PowerUp(this.scene, {
+        position: { x: e.position.x, z: e.position.z },
+        type,
+        terrain: this.terrain,
+      }));
+    }
+
+    // Destroyed vehicles come back elsewhere after a delay
+    if (e.kind === 'truck' || e.kind === 'apc' || e.kind === 'jammer') {
+      this._respawnQueue.push({ kind: e.kind, timer: ENDLESS.respawnDelay });
+    }
+  }
+
+  /** Random clear position on a ring around the player. */
+  _findClearPosNearPlayer(minDist, maxDist) {
+    const px = this.playerTank.position.x;
+    const pz = this.playerTank.position.z;
+    let x = px + minDist, z = pz;
+    for (let attempts = 0; attempts < 30; attempts++) {
+      const ang  = Math.random() * Math.PI * 2;
+      const dist = minDist + Math.random() * (maxDist - minDist);
+      x = px + Math.sin(ang) * dist;
+      z = pz + Math.cos(ang) * dist;
+      if (this.terrain.getHeightAt(x, z) < -1.2) continue; // river
+      const y = this.terrain.getHeightAt(x, z) + 0.8;
+      if (this.obstacleManager.checkTankCollision({ x, y, z }, 2.5).blocked) continue;
+      break;
+    }
+    return { x, z };
+  }
+
+  _updateRespawns(delta) {
+    for (let i = this._respawnQueue.length - 1; i >= 0; i--) {
+      const entry = this._respawnQueue[i];
+      entry.timer -= delta;
+      if (entry.timer > 0) continue;
+      this._respawnQueue.splice(i, 1);
+
+      const pos = this._findClearPosNearPlayer(ENDLESS.respawnMinDist, ENDLESS.respawnMaxDist);
+      const base = {
+        terrain:           this.terrain,
+        movementValidator: this.movementValidator,
+        mineManager:       this.mineManager,
+      };
+
+      if (entry.kind === 'tank') {
+        this.enemyTank._spawnConfig = { ...pos, heading: Math.random() * Math.PI * 2 };
+        this.enemyTank.reset(this.enemyTank._spawnConfig);
+        this.aiController.reset();
+        this.aiController.generatePatrolWaypoints();
+      } else if (entry.kind === 'truck') {
+        this.entityManager.add(new TruckVehicle(this.scene, { position: pos, ...base }));
+      } else if (entry.kind === 'apc') {
+        this.entityManager.add(new APCVehicle(this.scene, {
+          position: pos,
+          onSpawnInfantry: (inf) => this.entityManager.add(inf),
+          ...base,
+        }));
+      } else if (entry.kind === 'jammer') {
+        this.entityManager.add(new JammerTruck(this.scene, { position: pos, ...base }));
+      }
+    }
+  }
+
+  /** Player driving into a power-up collects it. */
+  _checkPowerUpPickup() {
+    const px = this.playerTank.position.x;
+    const pz = this.playerTank.position.z;
+    for (const pu of this.entityManager.alive(e => e.kind === 'powerup')) {
+      const dx = pu.position.x - px;
+      const dz = pu.position.z - pz;
+      if (dx * dx + dz * dz > POWERUP.pickupRadius * POWERUP.pickupRadius) continue;
+      pu.collect();
+      this.soundManager.pickup();
+      if (pu.type === 'repair') {
+        this.playerTank.repair(POWERUP.repairAmount);
+      } else if (pu.type === 'rapid') {
+        this._rapidTimer = POWERUP.rapidDuration;
+        this.playerTank.reloadFactor = 0.5;
+      } else if (pu.type === 'radar') {
+        this._radarTimer = POWERUP.radarDuration;
+      }
+    }
+  }
+
+  _updatePowerUpTimers(delta) {
+    if (this._rapidTimer > 0) {
+      this._rapidTimer -= delta;
+      if (this._rapidTimer <= 0) this.playerTank.reloadFactor = 1;
+    }
+    if (this._radarTimer > 0) {
+      this._radarTimer -= delta;
+    }
+  }
+
+  /**
+   * Periodic sweep: removes long-dead entities and pickups left far behind,
+   * so the registry stays small on long drives.
+   */
+  _cullFarEntities(delta) {
+    this._cullTimer += delta;
+    if (this._cullTimer < 5) return;
+    this._cullTimer = 0;
+
+    const px = this.playerTank.position.x;
+    const pz = this.playerTank.position.z;
+    const em = this.entityManager;
+    for (let i = em.entities.length - 1; i >= 0; i--) {
+      const e = em.entities[i];
+      const dx = e.position.x - px;
+      const dz = e.position.z - pz;
+      const far = (dx * dx + dz * dz) > 400 * 400;
+      const doneDead = !e.isAlive
+        && (!e.destructionEffect || e.destructionEffect.isComplete);
+      if ((far && e.kind === 'powerup') || (doneDead && far) || (doneDead && e.kind === 'powerup')) {
+        e.dispose();
+        em.entities.splice(i, 1);
+      }
+    }
+  }
+
+  /**
+   * Registers chunk-load spawning: ambient infantry whose density scales
+   * with distance from the origin, plus occasional power-up pickups.
+   * Called for the initial terrain and again after regeneration.
+   */
+  _hookChunkSpawns() {
+    this.terrain.onChunkLoaded((chunk) => {
+      const cx = chunk.cx * CHUNK.size + CHUNK.size / 2;
+      const cz = chunk.cz * CHUNK.size + CHUNK.size / 2;
+
+      // Ambient power-up
+      if (Math.random() < POWERUP.chunkChance) {
+        const x = chunk.cx * CHUNK.size + 6 + Math.random() * (CHUNK.size - 12);
+        const z = chunk.cz * CHUNK.size + 6 + Math.random() * (CHUNK.size - 12);
+        if (this.terrain.getHeightAt(x, z) > -1.2) {
+          const types = Object.keys(POWERUP.types);
+          this.entityManager.add(new PowerUp(this.scene, {
+            position: { x, z },
+            type: types[Math.floor(Math.random() * types.length)],
+            terrain: this.terrain,
+          }));
+        }
+      }
+
+      // Distance-scaled infantry — the world gets meaner the farther you go
+      const originDist = Math.sqrt(cx * cx + cz * cz);
+      if (originDist < ENDLESS.infantrySafeRadius) return;
+      const chance = Math.min(
+        ENDLESS.infantryMaxChance,
+        ENDLESS.infantryBaseChance + originDist / ENDLESS.infantryChanceScale,
+      );
+      if (Math.random() > chance) return;
+      const liveInfantry = this.entityManager.alive(e => e.kind === 'infantry').length;
+      if (liveInfantry >= ENDLESS.infantryCap) return;
+
+      const count = 1 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < count; i++) {
+        const x = chunk.cx * CHUNK.size + 4 + Math.random() * (CHUNK.size - 8);
+        const z = chunk.cz * CHUNK.size + 4 + Math.random() * (CHUNK.size - 8);
+        if (this.terrain.getHeightAt(x, z) < -1.2) continue; // river
+        this.entityManager.add(new InfantryUnit(this.scene, {
+          position:          { x, z },
+          terrain:           this.terrain,
+          movementValidator: this.movementValidator,
+          mineManager:       this.mineManager,
+        }));
+      }
+    });
+  }
+
   /**
    * Toggles visibility of all enemy entities when a live jammer is within range.
    * Called every frame during PLAYING state.
@@ -479,7 +725,8 @@ export class GameManager {
   _updateJammerEffect(delta) {
     const px = this.playerTank.position.x;
     const pz = this.playerTank.position.z;
-    const jamming = this.entityManager
+    // Radar power-up grants jam immunity
+    const jamming = this._radarTimer <= 0 && this.entityManager
       .alive(e => e.kind === 'jammer')
       .some(j => j.isJammingPosition(px, pz));
 
@@ -529,6 +776,8 @@ export class GameManager {
     const closestSide = (Math.abs(localX) >= Math.abs(localZ))
       ? (localX > 0 ? 'rightSide' : 'leftSide')
       : (localZ > 0 ? 'front'     : 'back');
+
+    this.soundManager.explosion(minePos);
 
     const MINE_DAMAGE = 3;
     let destroyed = false;
@@ -644,6 +893,9 @@ export class GameManager {
     // new terrain / validator / mineManager references)
     this._spawnEntities();
 
+    // Re-register chunk-load spawning on the new terrain instance
+    this._hookChunkSpawns();
+
     // Re-wire vehicle blocking provider to the new movementValidator instance
     this._updateMobileEntityProvider();
   }
@@ -683,6 +935,7 @@ export class GameManager {
       this.drone,
       this.mineManager,
       this.entityManager,
+      this.soundManager,
     ];
     for (const system of systems) {
       if (system) system.dispose();

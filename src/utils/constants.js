@@ -362,6 +362,39 @@ export const EFFECTS = {
 export const SCORE = {
   // Kept in React state; these are just display defaults
   initial: 0,
+  enemyTank: 10,          // points for destroying the enemy tank
+  highScoreKey: 'wirezone_highscores',
+  highScoreCount: 10,
+};
+
+// Power-up pickups
+export const POWERUP = {
+  pickupRadius: 2.6,       // player distance to collect
+  bobAmplitude: 0.35,
+  bobFrequency: 1.2,       // Hz
+  spinSpeed: 1.4,          // radians/second
+  size: 0.9,               // octahedron radius
+  chunkChance: 0.07,       // ambient spawn probability per chunk
+  radarDuration: 25,       // seconds of jam immunity
+  rapidDuration: 20,       // seconds of half reload time
+  repairAmount: 3,         // HP restored to every armor zone
+  types: {
+    repair: { color: 0x00ffff, label: 'REPAIR' },
+    rapid:  { color: 0xffff00, label: 'RAPID FIRE' },
+    radar:  { color: 0xff00ff, label: 'RADAR' },
+  },
+};
+
+// Endless-mode respawns and difficulty scaling
+export const ENDLESS = {
+  respawnDelay: 30,        // seconds before a destroyed vehicle respawns
+  respawnMinDist: 80,      // respawn ring around the player
+  respawnMaxDist: 150,
+  infantryCap: 24,         // max live infantry in the world
+  infantrySafeRadius: 150, // no ambient infantry this close to the origin
+  infantryBaseChance: 0.12,
+  infantryMaxChance: 0.55,
+  infantryChanceScale: 2500, // chance += dist / this
 };
 
 export const CONTROLS_HELP = {

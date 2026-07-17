@@ -70,6 +70,7 @@ export default class EntityManager {
 
       for (const e of this.entities) {
         if (!e.isAlive) continue;
+        if (e.projectileTransparent) continue; // e.g. power-ups
         if (proj.owner === e) continue; // no self-hits
         const hc = e.getHitCenter();
         const dx = pos.x - hc.x;

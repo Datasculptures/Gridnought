@@ -1,18 +1,40 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { loadHighScores, qualifiesForHighScore, addHighScore } from '../utils/highscores.js';
 
 /**
- * Full-screen overlay shown at ROUND_END.
+ * Full-screen overlay shown at ROUND_END (endless mode: player defeat).
+ * Shows the final score; if it makes the top-10 the player enters three
+ * initials, arcade style, before the table is displayed.
  *
  * Props:
- *   result      'victory' | 'defeat' | null
+ *   result      'defeat' | null
  *   onPlayAgain callback
  *   visible     boolean
- *   score       { player: number, enemy: number }
+ *   points      final arcade score
  */
-export default function ResultsScreen({ result, onPlayAgain, visible, score }) {
-  // Keyboard shortcut: Enter or Space triggers play-again
+export default function ResultsScreen({ result, onPlayAgain, visible, points = 0 }) {
+  const [initials, setInitials]   = useState('');
+  const [submitted, setSubmitted] = useState(false);
+  const [scores, setScores]       = useState([]);
+  const inputRef = useRef(null);
+
+  const qualifies = visible && !submitted && qualifiesForHighScore(points);
+
+  // Reset entry state each time the screen appears
   useEffect(() => {
     if (!visible) return;
+    setInitials('');
+    setSubmitted(false);
+    setScores(loadHighScores());
+  }, [visible]);
+
+  useEffect(() => {
+    if (qualifies) inputRef.current?.focus();
+  }, [qualifies]);
+
+  // Enter/Space → play again (only once initials are dealt with)
+  useEffect(() => {
+    if (!visible || qualifies) return;
     const handleKey = (e) => {
       if (e.code === 'Enter' || e.code === 'Space') {
         e.preventDefault();
@@ -21,13 +43,14 @@ export default function ResultsScreen({ result, onPlayAgain, visible, score }) {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [visible, onPlayAgain]);
+  }, [visible, qualifies, onPlayAgain]);
 
   if (!visible || !result) return null;
 
-  const isVictory  = result === 'victory';
-  const titleColor = isVictory ? '#4488ff' : '#ff4444';
-  const titleText  = isVictory ? 'VICTORY' : 'DEFEAT';
+  const submitInitials = () => {
+    setScores(addHighScore(initials || '???', points));
+    setSubmitted(true);
+  };
 
   return (
     <div
@@ -44,38 +67,70 @@ export default function ResultsScreen({ result, onPlayAgain, visible, score }) {
     >
       <div
         style={{
-          color: titleColor,
+          color: '#ff4444',
           fontSize: 52,
           fontWeight: 'bold',
-          marginBottom: 16,
+          marginBottom: 12,
           letterSpacing: 6,
         }}
       >
-        {titleText}
+        GAME OVER
       </div>
 
-      {/* Score tally */}
-      {score && (
-        <div
-          style={{
-            fontSize: 14,
-            letterSpacing: 3,
-            color: '#ffffff',
-            marginBottom: 28,
-          }}
-        >
-          <span style={{ color: '#4488ff' }}>PLAYER</span>
-          {` ${score.player} — ${score.enemy} `}
-          <span style={{ color: '#ff4444' }}>ENEMY</span>
+      <div style={{ fontSize: 16, letterSpacing: 3, color: '#00ff00', marginBottom: 20 }}>
+        SCORE {String(points).padStart(6, '0')}
+      </div>
+
+      {qualifies ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 20 }}>
+          <div style={{ color: '#ffff00', fontSize: 13, letterSpacing: 2, marginBottom: 10 }}>
+            NEW HIGH SCORE — ENTER YOUR INITIALS
+          </div>
+          <input
+            ref={inputRef}
+            value={initials}
+            maxLength={3}
+            onChange={e => setInitials(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+            onKeyDown={e => { if (e.key === 'Enter') submitInitials(); }}
+            style={{
+              background: '#000',
+              border: '1px solid #00ff00',
+              color: '#00ff00',
+              fontFamily: 'monospace',
+              fontSize: 26,
+              letterSpacing: 12,
+              textAlign: 'center',
+              width: 110,
+              padding: '6px 0 6px 12px',
+              outline: 'none',
+            }}
+          />
+          <button className="wireframe-btn" style={{ marginTop: 12 }} onClick={submitInitials}>
+            OK
+          </button>
         </div>
+      ) : (
+        scores.length > 0 && (
+          <div style={{ color: '#00aa00', fontSize: 12, lineHeight: 1.8, marginBottom: 20, letterSpacing: 2 }}>
+            {scores.map((s, i) => (
+              <div key={i}>
+                {String(i + 1).padStart(2, ' ')}. {s.initials.padEnd(3, ' ')}  {String(s.score).padStart(6, '0')}
+              </div>
+            ))}
+          </div>
+        )
       )}
 
-      <button className="wireframe-btn" onClick={onPlayAgain}>
-        PLAY AGAIN
-      </button>
-      <div style={{ color: '#555', fontSize: 11, marginTop: 12 }}>
-        ENTER / SPACE
-      </div>
+      {!qualifies && (
+        <>
+          <button className="wireframe-btn" onClick={onPlayAgain}>
+            PLAY AGAIN
+          </button>
+          <div style={{ color: '#555', fontSize: 11, marginTop: 12 }}>
+            ENTER / SPACE
+          </div>
+        </>
+      )}
     </div>
   );
 }

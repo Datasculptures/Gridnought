@@ -55,6 +55,10 @@ export default class Tank {
     // --- First-person aim state (world-stabilised turret yaw) ---
     this._aimWorldYaw = null;
 
+    // --- Power-up modifiers / audio ---
+    this.reloadFactor = 1;     // <1 while rapid-fire is active
+    this.soundManager = null;  // injected by GameManager
+
     // --- Machine gun burst state ---
     this._mgBurstLeft  = 0;
     this._mgBurstTimer = 0;
@@ -219,6 +223,18 @@ export default class Tank {
   }
 
   /**
+   * Restores HP to every armor zone (repair power-up).
+   * @param {number} amount
+   */
+  repair(amount) {
+    if (!this.isAlive) return;
+    for (const zone of Object.keys(this.armor)) {
+      this.armor[zone] = Math.min(this._armorMaxHP, this.armor[zone] + amount);
+    }
+    this._updateHullColors();
+  }
+
+  /**
    * Applies one hit to an armor zone. Brightens the face, destroys tank if HP reaches 0.
    * @param {'top'|'front'|'back'|'leftSide'|'rightSide'} zone
    * @returns {boolean} true if the hit destroyed the tank
@@ -261,6 +277,7 @@ export default class Tank {
       canHitTanks:   false,
       weaponType:    WeaponType.LIGHT_MG,
     });
+    this.soundManager?.mg(this.position);
     if (this.effectsManager) {
       this.effectsManager.spawnMuzzleFlash(origin.clone());
     }
@@ -491,7 +508,8 @@ export default class Tank {
         this.effectsManager.spawnMuzzleFlash(origin.clone());
       }
       this.canFire     = false;
-      this.reloadTimer = TANK.reloadTime;
+      this.reloadTimer = TANK.reloadTime * (this.reloadFactor ?? 1);
+      this.soundManager?.fire(this.position);
     }
 
     // Reset one-shot AI fire command after reading

@@ -24,6 +24,10 @@ export default class InputManager {
     this.mouseButtons = new Map();
 
     this._onKeyDown = (event) => {
+      // Don't swallow keys while the user types into a form field
+      // (e.g. high-score initials entry)
+      const tag = event.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (!VALID_KEYS.has(event.code)) return;
       // One-shot callbacks fire on the initial press only (not auto-repeat)
       if (!this.keys.get(event.code) && !event.repeat) {

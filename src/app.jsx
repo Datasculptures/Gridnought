@@ -24,7 +24,7 @@ export default function App() {
 
   const [gameState,  setGameState]  = useState(GameState.MENU);
   const [gameResult, setGameResult] = useState(null);
-  const [score,      setScore]      = useState({ player: 0, enemy: 0 });
+  const [points,     setPoints]     = useState(0);
   const [view,       setView]       = useState('game'); // 'game' | 'areax'
 
   useEffect(() => {
@@ -35,11 +35,9 @@ export default function App() {
 
     gm.onRoundEnd((result) => {
       setGameResult(result);
-      setScore(prev => ({
-        player: prev.player + (result === 'victory' ? 1 : 0),
-        enemy:  prev.enemy  + (result === 'defeat'  ? 1 : 0),
-      }));
     });
+
+    gm.onPointsChange(setPoints);
 
     gm.start();
 
@@ -111,7 +109,7 @@ export default function App() {
       <HUD
         playerTankRef={playerTankRef}
         gameState={gameState}
-        score={score}
+        points={points}
       />
 
       <Minimap
@@ -146,7 +144,7 @@ export default function App() {
         visible={gameState === GameState.ROUND_END}
         result={gameResult}
         onPlayAgain={handlePlayAgain}
-        score={score}
+        points={points}
       />
     </>
   );

@@ -10,9 +10,9 @@ import GameState from '../game/GameState.js';
  * Props:
  *   playerTankRef  React ref to player Tank
  *   gameState      current GameState string
- *   score          { player: number, enemy: number }
+ *   points         arcade score (number)
  */
-export default function HUD({ playerTankRef, gameState, score }) {
+export default function HUD({ playerTankRef, gameState, points = 0 }) {
   const fillRef = useRef(null);
 
   useEffect(() => {
@@ -58,9 +58,8 @@ export default function HUD({ playerTankRef, gameState, score }) {
           whiteSpace: 'nowrap',
         }}
       >
-        <span style={{ color: '#4488ff' }}>PLAYER</span>
-        {` ${score.player} — ${score.enemy} `}
-        <span style={{ color: '#ff4444' }}>ENEMY</span>
+        <span style={{ color: '#00ff00' }}>SCORE </span>
+        {String(points).padStart(6, '0')}
       </div>
 
       {/* Reload bar — bottom centre */}

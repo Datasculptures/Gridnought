@@ -35,9 +35,9 @@ export default class ChunkedTerrain {
     // Vertex-height cache for queries outside loaded chunks
     this._vhCache     = new Map();
 
-    // Chunk lifecycle callbacks (used by ObstacleManager)
-    this._onChunkLoaded   = null;
-    this._onChunkUnloaded = null;
+    // Chunk lifecycle listeners (ObstacleManager, enemy spawner, ...)
+    this._onChunkLoaded   = [];
+    this._onChunkUnloaded = [];
   }
 
   /**
@@ -61,8 +61,8 @@ export default class ChunkedTerrain {
     return this;
   }
 
-  onChunkLoaded(cb)   { this._onChunkLoaded = cb; }
-  onChunkUnloaded(cb) { this._onChunkUnloaded = cb; }
+  onChunkLoaded(cb)   { this._onChunkLoaded.push(cb); }
+  onChunkUnloaded(cb) { this._onChunkUnloaded.push(cb); }
 
   /** World position → containing chunk coords. */
   chunkCoordsAt(wx, wz) {
@@ -138,7 +138,7 @@ export default class ChunkedTerrain {
 
     const chunk = this._buildChunk(cx, cz);
     this.chunks.set(key, chunk);
-    if (this._onChunkLoaded) this._onChunkLoaded(chunk);
+    for (const cb of this._onChunkLoaded) cb(chunk);
     return chunk;
   }
 
@@ -204,7 +204,7 @@ export default class ChunkedTerrain {
   }
 
   _disposeChunk(chunk) {
-    if (this._onChunkUnloaded) this._onChunkUnloaded(chunk);
+    for (const cb of this._onChunkUnloaded) cb(chunk);
     const mi = this.solidMeshes.indexOf(chunk.solidMesh);
     if (mi !== -1) this.solidMeshes.splice(mi, 1);
     this.scene.remove(chunk.solidMesh);

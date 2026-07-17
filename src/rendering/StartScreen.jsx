@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { loadHighScores } from '../utils/highscores.js';
 
 /**
  * Full-screen title overlay shown while game state is MENU.
@@ -8,6 +9,12 @@ import { useEffect } from 'react';
  *   visible: boolean
  */
 export default function StartScreen({ onStart, onAreaX, visible }) {
+  const [scores, setScores] = useState([]);
+
+  useEffect(() => {
+    if (visible) setScores(loadHighScores());
+  }, [visible]);
+
   // Keyboard shortcut: Enter or Space starts the game
   useEffect(() => {
     if (!visible) return;
@@ -64,6 +71,22 @@ export default function StartScreen({ onStart, onAreaX, visible }) {
       <div style={{ color: '#555', fontSize: 11, marginTop: 10 }}>
         UNIT SHOWCASE
       </div>
+
+      {/* Arcade high-score table */}
+      {scores.length > 0 && (
+        <div style={{ marginTop: 30, textAlign: 'center' }}>
+          <div style={{ color: '#ffff00', fontSize: 12, letterSpacing: 4, marginBottom: 8 }}>
+            HIGH SCORES
+          </div>
+          <div style={{ color: '#00aa00', fontSize: 11, lineHeight: 1.7, letterSpacing: 2, whiteSpace: 'pre' }}>
+            {scores.map((s, i) => (
+              <div key={i}>
+                {String(i + 1).padStart(2, ' ')}. {s.initials.padEnd(3, ' ')}  {String(s.score).padStart(6, '0')}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
