@@ -161,6 +161,16 @@ export default class Tank {
     this.hullMesh = new THREE.Mesh(hullGeo, this._wireMat);
     this.hullMesh.position.y = TANK.hull.height / 2;
 
+    // ---- Sloped glacis plate (visual) — wedge-like front ----
+    this._glacisGeo = new THREE.BoxGeometry(TANK.hull.width * 0.96, 0.98, 0.12);
+    const glacisSolid = new THREE.Mesh(this._glacisGeo, this._solidMat);
+    const glacisWire  = new THREE.Mesh(this._glacisGeo, this._wireMat);
+    // Leans from the hull top (near the turret) down to the front lower lip
+    for (const m of [glacisSolid, glacisWire]) {
+      m.position.set(0, 0.675, TANK.hull.depth / 2 - 0.22);
+      m.rotation.x = -0.70;
+    }
+
     // ---- Turret pivot ----
     this.turretPivot = new THREE.Group();
 
@@ -192,6 +202,8 @@ export default class Tank {
     this.turretPivot.add(this.barrelElevPivot);
     this.group.add(this.hullSolidMesh);
     this.group.add(this.hullMesh);
+    this.group.add(glacisSolid);
+    this.group.add(glacisWire);
     this.group.add(this.turretPivot);
   }
 
@@ -627,6 +639,7 @@ export default class Tank {
       if (this.hullMesh)   this.hullMesh.geometry.dispose();
       if (this.turretMesh) this.turretMesh.geometry.dispose();
       if (this.barrelMesh) this.barrelMesh.geometry.dispose();
+      if (this._glacisGeo) { this._glacisGeo.dispose(); this._glacisGeo = null; }
       this.group = null;
     }
 

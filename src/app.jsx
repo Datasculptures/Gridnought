@@ -11,6 +11,7 @@ import ControlsHelp from './rendering/ControlsHelp.jsx';
 import ElevationIndicator from './rendering/ElevationIndicator.jsx';
 import MessageTicker from './rendering/MessageTicker.jsx';
 import DamageIndicator from './rendering/DamageIndicator.jsx';
+import HowToPage from './rendering/HowToPage.jsx';
 import './App.css';
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
   const [gameState,  setGameState]  = useState(GameState.MENU);
   const [gameResult, setGameResult] = useState(null);
   const [points,     setPoints]     = useState(0);
+  const [showHowTo,  setShowHowTo]  = useState(false);
 
   useEffect(() => {
     const gm = new GameManager();
@@ -126,12 +128,18 @@ export default function App() {
 
       <DamageIndicator playerTankRef={playerTankRef} gameState={gameState} />
 
-      <MenuScreen
-        gameState={gameState}
-        onResume={() => managerRef.current?.resumeGame()}
-        onStart={handleStart}
-        onQuit={handleQuit}
-      />
+      {/* Hidden while the How To page is open so its hotkeys don't fire */}
+      {!showHowTo && (
+        <MenuScreen
+          gameState={gameState}
+          onResume={() => managerRef.current?.resumeGame()}
+          onStart={handleStart}
+          onQuit={handleQuit}
+          onHowTo={() => setShowHowTo(true)}
+        />
+      )}
+
+      <HowToPage visible={showHowTo} onBack={() => setShowHowTo(false)} />
 
       <ResultsScreen
         visible={gameState === GameState.ROUND_END}

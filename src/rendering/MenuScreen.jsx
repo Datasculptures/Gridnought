@@ -12,7 +12,7 @@ import { loadHighScores } from '../utils/highscores.js';
  *   onStart()   start a fresh run (also abandons a paused one)
  *   onQuit()    close the application
  */
-export default function MenuScreen({ gameState, onResume, onStart, onQuit }) {
+export default function MenuScreen({ gameState, onResume, onStart, onQuit, onHowTo }) {
   const paused  = gameState === GameState.PAUSED;
   const visible = paused || gameState === GameState.MENU;
   const [scores, setScores] = useState([]);
@@ -73,6 +73,8 @@ export default function MenuScreen({ gameState, onResume, onStart, onQuit }) {
       )}
 
       <button className="wireframe-btn" onClick={onStart}>START NEW GAME</button>
+      <div style={{ height: 10 }} />
+      <button className="wireframe-btn" onClick={onHowTo}>HOW TO / ABOUT</button>
       <div style={{ height: 10 }} />
       <button className="wireframe-btn" onClick={onQuit}>QUIT</button>
 

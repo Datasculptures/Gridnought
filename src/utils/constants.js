@@ -1,3 +1,9 @@
+// App identity — shown on the menu and the How To page
+export const APP = {
+  version: '0.1.0',
+  date: '2026-07-18',
+};
+
 // Grid — legacy constants kept for HUD/minimap scaling references
 export const GRID_SIZE = 108;
 export const CELL_SIZE = 2;
