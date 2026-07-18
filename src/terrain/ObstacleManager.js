@@ -111,11 +111,17 @@ export default class ObstacleManager {
     // Box local +X maps to world (cosR, -sinR): align local X with `dir`
     const rot = Math.atan2(-dir.z, dir.x);
 
+    // Rails sit level at bank height — never partially buried in the dip
+    const hEndA = this.terrain.getHeightAt(cx + dir.x * BRIDGE.railLength / 2, cz + dir.z * BRIDGE.railLength / 2);
+    const hEndB = this.terrain.getHeightAt(cx - dir.x * BRIDGE.railLength / 2, cz - dir.z * BRIDGE.railLength / 2);
+    const deckY = Math.max(hEndA, hEndB, 0.2);
+
     // Guard rails either side of the deck
     for (const s of [-1, 1]) {
       out.push({
         type: 'wall',
         skipFilter: true,
+        baseY: deckY,
         position: {
           x: cx + perp.x * BRIDGE.halfSpacing * s,
           z: cz + perp.z * BRIDGE.halfSpacing * s,

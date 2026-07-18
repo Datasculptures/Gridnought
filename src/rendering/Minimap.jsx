@@ -205,6 +205,22 @@ export default function Minimap({
               ctx.arc(px, py, MINIMAP.tankRadius * 0.8, 0, Math.PI * 2);
               ctx.fill();
               break;
+            case 'bomber': {
+              // Aircraft: red arrowhead pointing along its flight direction
+              const s = MINIMAP.tankRadius * 1.5;
+              ctx.save();
+              ctx.translate(px, py);
+              ctx.rotate(Math.atan2(e._dir?.x ?? 0, -(e._dir?.z ?? 1)));
+              ctx.strokeStyle = '#ff4444';
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(-s, s);
+              ctx.lineTo(0, -s);
+              ctx.lineTo(s, s);
+              ctx.stroke();
+              ctx.restore();
+              break;
+            }
             case 'jammer':
               ctx.strokeStyle = '#ff2222';
               ctx.lineWidth   = 1.5;

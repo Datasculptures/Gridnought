@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES } from '../utils/constants.js';
+import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER } from '../utils/constants.js';
 import GameState from './GameState.js';
 import InputManager from '../input/InputManager.js';
 import ChunkedTerrain from '../terrain/ChunkedTerrain.js';
@@ -17,6 +17,7 @@ import APCVehicle    from '../entities/APCVehicle.js';
 import JammerTruck   from '../entities/JammerTruck.js';
 import EntityManager from '../entities/EntityManager.js';
 import PowerUp from '../entities/PowerUp.js';
+import Bomber from '../entities/Bomber.js';
 import SoundManager from '../audio/SoundManager.js';
 import Drone from '../entities/Drone.js';
 import MineManager from '../entities/MineManager.js';
@@ -74,6 +75,9 @@ export class GameManager {
     // Threat rating
     this._threatSpawnTimer    = 0;
     this._threatLevel         = 1;
+
+    // Bomber runs
+    this._bomberTimer         = 0;
 
     // Map type for current round + player-selected preference ('random' = pick randomly)
     this.mapType              = 'hills';
@@ -253,6 +257,7 @@ export class GameManager {
         u.tank.update(delta);
       }
       this._updateThreat(delta);
+      this._updateBomber(delta);
 
       // Stream terrain chunks around the player
       this.terrain.setFocus(this.playerTank.position.x, this.playerTank.position.z);
@@ -356,11 +361,22 @@ export class GameManager {
   // Enemy tank pool (threat rating)
   // ---------------------------------------------------------------------------
 
+  /** Weighted enemy tank class pick — heavies appear at higher threat. */
+  _pickEnemyClass() {
+    const level = this._desiredEnemyTanks();
+    if (level <= 1) return 'medium';
+    const roll = Math.random();
+    if (level >= 3 && roll < 0.25) return 'heavy';
+    if (roll < 0.55) return 'light';
+    return 'medium';
+  }
+
   /** Creates a fully-wired AI enemy tank and adds it to the pool. */
-  _createEnemyUnit(spawn) {
+  _createEnemyUnit(spawn, tankClass = 'medium') {
     const tank = new Tank(this.scene, {
       position: { x: spawn.x, z: spawn.z, heading: spawn.heading ?? Math.random() * Math.PI * 2 },
       color: COLORS.enemyTank,
+      tankClass,
       terrain: this.terrain,
       inputManager: null,
       movementValidator: this.movementValidator,
@@ -430,11 +446,75 @@ export class GameManager {
       dead.ai.setGameState(GameState.PLAYING);
       dead.ai.generatePatrolWaypoints();
     } else {
-      const unit = this._createEnemyUnit(spawn);
+      const unit = this._createEnemyUnit(spawn, this._pickEnemyClass());
       unit.ai.setGameState(GameState.PLAYING);
       unit.ai.generatePatrolWaypoints();
     }
     this._pushMessage('ENEMY ARMOR INBOUND');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bomber runs
+  // ---------------------------------------------------------------------------
+
+  _updateBomber(delta) {
+    if (this._bomberTimer <= 0) {
+      this._bomberTimer = BOMBER.intervalMin
+        + Math.random() * (BOMBER.intervalMax - BOMBER.intervalMin);
+      return;
+    }
+    this._bomberTimer -= delta;
+    if (this._bomberTimer > 0) return;
+
+    // Launch a run: random bearing, path passes over the player's position
+    const ang = Math.random() * Math.PI * 2;
+    const px  = this.playerTank.position.x;
+    const pz  = this.playerTank.position.z;
+    this.entityManager.add(new Bomber(this.scene, {
+      start:  { x: px - Math.sin(ang) * BOMBER.spawnDist, z: pz - Math.cos(ang) * BOMBER.spawnDist },
+      target: { x: px, z: pz },
+      terrain: this.terrain,
+      onDetonate: (pos) => this._handleBombDetonation(pos),
+    }));
+    this._pushMessage('AIRCRAFT INBOUND — ENEMY BOMBER');
+  }
+
+  /** Ground detonation: area damage to the player and anything nearby. */
+  _handleBombDetonation(pos) {
+    this.soundManager.explosion(pos);
+    this.effectsManager.spawnExplosion(pos, COLORS.enemyProjectile);
+
+    const r2 = BOMBER.blastRadius * BOMBER.blastRadius;
+
+    // Player: top-armor damage (bombs come from above)
+    if (this.playerTank.isAlive && this.pendingRoundResult === null) {
+      const dx = this.playerTank.position.x - pos.x;
+      const dz = this.playerTank.position.z - pos.z;
+      if (dx * dx + dz * dz <= r2) {
+        if (this.playerTank.takeHit('top', BOMBER.playerZoneDamage)) {
+          this.pendingRoundResult = 'defeat';
+          this.roundEndDelayTimer = ROUND.resultDisplayDelay;
+        } else {
+          this._pushMessage("WE'VE BEEN HIT — TOP ARMOR");
+        }
+      }
+    }
+
+    // Ground entities caught in the blast (no points for the bomber's kills)
+    for (const e of this.entityManager.alive()) {
+      if (e.kind === 'bomber' || e.kind === 'powerup') continue;
+      const dx = e.position.x - pos.x;
+      const dz = e.position.z - pos.z;
+      if (dx * dx + dz * dz <= r2) e.takeHit(3);
+    }
+
+    // Enemy tanks in the blast take top-zone damage too (friendly fire)
+    for (const u of this.enemyUnits) {
+      if (!u.tank.isAlive) continue;
+      const dx = u.tank.position.x - pos.x;
+      const dz = u.tank.position.z - pos.z;
+      if (dx * dx + dz * dz <= r2) u.tank.takeHit('top', BOMBER.playerZoneDamage);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -487,7 +567,7 @@ export class GameManager {
         this.roundEndDelayTimer = ROUND.resultDisplayDelay;
       } else {
         // An enemy tank went down — the threat manager refills the pool
-        this._addPoints(SCORE.enemyTank);
+        this._addPoints(tank.scoreValue ?? SCORE.enemyTank);
         this._pushMessage('ENEMY TANK DESTROYED');
       }
     } else {
@@ -667,6 +747,7 @@ export class GameManager {
     this._droneRangeTimer = 0;
     this._overdriveTimer  = 0;
     this._apTimer         = 0;
+    this._bomberTimer     = 0; // re-rolls a fresh random interval on first tick
     if (this.playerTank) {
       this.playerTank.reloadFactor = 1;
       this.playerTank.speedFactor  = 1;

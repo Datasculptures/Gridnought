@@ -72,8 +72,12 @@ export default function App() {
   const handleQuit = () => {
     // Tauri desktop window; falls back to window.close() in a plain browser
     const tauriWin = window.__TAURI__?.window?.getCurrentWindow?.();
-    if (tauriWin) tauriWin.close();
-    else window.close();
+    if (tauriWin) {
+      // close() can be vetoed; destroy() is the reliable exit
+      tauriWin.close().catch(() => tauriWin.destroy());
+    } else {
+      window.close();
+    }
   };
 
   const handlePlayAgain = () => {

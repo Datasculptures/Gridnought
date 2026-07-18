@@ -61,7 +61,8 @@ export default class InfantryUnit {
   // ---------------------------------------------------------------------------
 
   _buildMesh() {
-    // Solid black body + enemy-red wireframe silhouette
+    // Gingerbread-man silhouette: block torso + block limbs + sphere head,
+    // solid black fill under an enemy-red wireframe
     this._solidMat = new THREE.MeshBasicMaterial({
       color: 0x000000,
       polygonOffset: true,
@@ -71,15 +72,27 @@ export default class InfantryUnit {
     this._wireMat = new THREE.MeshBasicMaterial({ color: COLORS.enemyTank, wireframe: true });
 
     this.group = new THREE.Group();
+    this._geos = [];
 
-    const bodyGeo = new THREE.BoxGeometry(0.4, 0.9, 0.3);
-    this.solidMesh = new THREE.Mesh(bodyGeo, this._solidMat);
-    this.solidMesh.position.y = 0.45;
-    this.wireMesh  = new THREE.Mesh(bodyGeo, this._wireMat);
-    this.wireMesh.position.y = 0.45;
+    const part = (geo, x, y, z, rotZ = 0) => {
+      this._geos.push(geo);
+      const s = new THREE.Mesh(geo, this._solidMat);
+      const w = new THREE.Mesh(geo, this._wireMat);
+      s.position.set(x, y, z); w.position.set(x, y, z);
+      s.rotation.z = rotZ;     w.rotation.z = rotZ;
+      this.group.add(s, w);
+    };
 
-    this.group.add(this.solidMesh);
-    this.group.add(this.wireMesh);
+    // Torso
+    part(new THREE.BoxGeometry(0.34, 0.42, 0.2), 0, 0.52, 0);
+    // Legs
+    part(new THREE.BoxGeometry(0.12, 0.32, 0.16), -0.10, 0.16, 0);
+    part(new THREE.BoxGeometry(0.12, 0.32, 0.16),  0.10, 0.16, 0);
+    // Arms — slightly splayed
+    part(new THREE.BoxGeometry(0.10, 0.30, 0.14), -0.25, 0.56, 0,  0.35);
+    part(new THREE.BoxGeometry(0.10, 0.30, 0.14),  0.25, 0.56, 0, -0.35);
+    // Sphere head
+    part(new THREE.SphereGeometry(0.15, 6, 5), 0, 0.88, 0);
   }
 
   _applyTransform() {
@@ -192,7 +205,7 @@ export default class InfantryUnit {
       radius:        MACHINEGUN.radius,
       gravity:       MACHINEGUN.gravity,
       maxFlightTime: MACHINEGUN.maxFlightTime,
-      weaponType:    WeaponType.LIGHT_MG,
+      weaponType:    WeaponType.INFANTRY_MG,
     });
   }
 
@@ -249,7 +262,7 @@ export default class InfantryUnit {
     }
     if (this.group) {
       this.scene.remove(this.group);
-      if (this.wireMesh) this.wireMesh.geometry.dispose();
+      if (this._geos) { this._geos.forEach(g => g.dispose()); this._geos = null; }
       this.group = null;
     }
     if (this._wireMat)   { this._wireMat.dispose();   this._wireMat   = null; }

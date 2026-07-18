@@ -20,6 +20,22 @@ export const WeaponType = Object.freeze({
     damage:      1,
     penetrating: false,
   }),
+  // Infantry small-arms — chips away at tank armor, slowly
+  INFANTRY_MG: Object.freeze({
+    id:          'INFANTRY_MG',
+    label:       'Infantry Machine Gun',
+    range:       12,
+    damage:      0.4,
+    penetrating: true,
+  }),
+  // Air-dropped bomb — heavy area damage on impact
+  BOMB: Object.freeze({
+    id:          'BOMB',
+    label:       'Aerial Bomb',
+    range:       null,
+    damage:      3,
+    penetrating: true,
+  }),
   LIGHT_CANNON: Object.freeze({
     id:          'LIGHT_CANNON',
     label:       'Light Cannon',

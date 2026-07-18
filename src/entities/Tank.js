@@ -3,8 +3,11 @@ import { TANK, TURRET, PROJECTILE, MACHINEGUN, COLORS } from '../utils/constants
 import DestructionEffect from '../rendering/DestructionEffect.js';
 import { WeaponType } from '../weapons/WeaponTypes.js';
 
-// HP per armor zone by tank class
-const CLASS_HP = Object.freeze({ light: 3, medium: 5, heavy: 10 });
+// Per-class stats: armor HP per zone, speed multiplier, visual scale, points
+const CLASS_HP    = Object.freeze({ light: 3,    medium: 5, heavy: 10   });
+const CLASS_SPEED = Object.freeze({ light: 1.15, medium: 1, heavy: 0.75 });
+const CLASS_SCALE = Object.freeze({ light: 0.85, medium: 1, heavy: 1.25 });
+const CLASS_SCORE = Object.freeze({ light: 8,    medium: 10, heavy: 15  });
 
 // BoxGeometry face-group → armor zone mapping
 // Three.js groups: 0=+X(right), 1=-X(left), 2=+Y(top), 3=-Y(bottom), 4=+Z(front), 5=-Z(back)
@@ -49,6 +52,8 @@ export default class Tank {
     // --- Tank class + armor ---
     this.tankClass         = config.tankClass ?? 'medium';
     this._armorMaxHP       = CLASS_HP[this.tankClass] ?? 5;
+    this.classSpeed        = CLASS_SPEED[this.tankClass] ?? 1;
+    this.scoreValue        = CLASS_SCORE[this.tankClass] ?? 10;
     this.isArmoured        = true;
     this.armor             = freshArmor(this._armorMaxHP);
 
@@ -89,6 +94,9 @@ export default class Tank {
 
     // Build mesh hierarchy and add to scene
     this._buildMesh(config.color);
+    // Class silhouette: light tanks are visibly smaller, heavies bulkier
+    const cs = CLASS_SCALE[this.tankClass] ?? 1;
+    if (cs !== 1) this.group.scale.set(cs, cs, cs);
     this._applyTransform();
     scene.add(this.group);
   }
@@ -350,8 +358,9 @@ export default class Tank {
 
     // 3. Target speed
     let targetSpeed = 0;
-    if      (moveInput > 0) targetSpeed =  TANK.moveSpeed * this.speedFactor;
-    else if (moveInput < 0) targetSpeed = -TANK.moveSpeed * TANK.reverseSpeedFactor * this.speedFactor;
+    const spd = this.speedFactor * this.classSpeed;
+    if      (moveInput > 0) targetSpeed =  TANK.moveSpeed * spd;
+    else if (moveInput < 0) targetSpeed = -TANK.moveSpeed * TANK.reverseSpeedFactor * spd;
 
     // 4. Acceleration / deceleration
     const diff = targetSpeed - this.speed;

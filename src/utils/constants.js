@@ -35,8 +35,8 @@ export const RIVER = {
   channelWidth: 0.05,           // |field| below this → river channel
   maxDepth: 9,                  // carve depth at channel centre
   fordScale: 0.02,              // ford noise frequency
-  fordThreshold: 0.62,          // ford noise above this → shallow crossing
-  fordDepth: 0.8,               // depth at fords — causeway-flat for bridges
+  fordThreshold: 0.45,          // lower → more fords, so more bridges
+  fordDepth: 0.4,               // near-level crossings under the bridge decks
 };
 
 // Bridges — idealized wireframe crossings generated at river fords
@@ -46,7 +46,7 @@ export const BRIDGE = {
   railThickness: 0.35,
   halfSpacing: 3.2,             // rail offset each side of the deck centreline
   pylon: { width: 0.6, height: 1.6, depth: 0.6 },
-  minFordSamples: 6,            // chunk must contain this many ford cells
+  minFordSamples: 4,            // chunk must contain this many ford cells
   minOriginDist: 210,           // no bridges where rivers fade near spawn
 };
 
@@ -495,6 +495,24 @@ export const DRONE = {
   bobFrequency:  0.6,   // Hz
   range:         170,   // beyond this from the orbit centre → "out of range"
   retaskLerp:    0.35,  // per-second approach rate when flying to a new station
+};
+
+// Enemy bomber — periodic straight-line bombing runs over the player
+export const BOMBER = {
+  intervalMin: 110,     // seconds between runs (random in [min, max])
+  intervalMax: 280,
+  altitude: 24,         // low enough to engage with the main gun
+  speed: 26,            // slow enough to lead
+  hitRadius: 4.5,
+  score: 20,
+  bombCount: 7,
+  dropInterval: 0.35,   // seconds between bombs in the stick
+  dropStartDist: 65,    // begins releasing this far before the target point
+  bombGravity: 22,
+  spawnDist: 420,       // run starts this far out
+  despawnDist: 380,     // leaves this far past the target
+  blastRadius: 6.5,     // ground detonation damage radius
+  playerZoneDamage: 2,  // armor damage to the player's top zone per blast
 };
 
 // Bottom-of-screen event messages
