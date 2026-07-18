@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER } from '../utils/constants.js';
+import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER, COLLISION, TARGETING } from '../utils/constants.js';
 import GameState from './GameState.js';
 import InputManager from '../input/InputManager.js';
 import ChunkedTerrain from '../terrain/ChunkedTerrain.js';
@@ -46,7 +46,10 @@ export class GameManager {
     this.obstacleManager      = null;
     this.effectsManager       = null;
     this.entityManager        = null; // unified registry: infantry, trucks, APCs, jammers, ...
-    this.drone                = null;
+    this.drones               = [];   // friendly drone fleet — [0] is the base spotter
+
+    // Gunsight target lock (first-person only)
+    this.aimTarget            = null;
 
     // Jammer effect state
     this._jamFlickerTimer     = 0;
@@ -175,11 +178,13 @@ export class GameManager {
       }
     });
 
-    // R retasks the drone to circle a point above the tank's position
+    // R retasks the drone fleet to circle a point above the tank's position
     this.inputManager.onKeyPress('KeyR', () => {
-      if (this.state !== GameState.PLAYING || !this.drone?.isAlive) return;
-      this.drone.retask(this.playerTank.position);
-      this._pushMessage('DRONE RETASKED — MOVING TO STATION');
+      if (this.state !== GameState.PLAYING) return;
+      const idle = this.drones.filter(d => d.isAlive && !d.isStriking);
+      if (idle.length === 0) return;
+      for (const d of idle) d.retask(this.playerTank.position);
+      this._pushMessage('DRONES RETASKED — MOVING TO STATION');
       this._droneRangeTimer = 0;
     });
 
@@ -195,8 +200,13 @@ export class GameManager {
       if (this.state === GameState.PLAYING) this.pauseGame();
     });
 
-    // Drone — passive observer, flies a circular orbit above the battlefield
-    this.drone = new Drone(this.scene);
+    // Drone fleet — the base spotter; power-ups add more
+    this.drones = [new Drone(this.scene)];
+
+    // Machine gun stands down while a drone strike is available on the
+    // locked target — X launches the strike instead
+    this.playerTank.mgSuppressed = () => this._canDroneStrike();
+    this.inputManager.onKeyPress('KeyX', () => this._tryDroneStrike());
 
     // Mine manager — generates 0-2 clusters of small red mines each round
     this.mineManager = new MineManager(this.scene);
@@ -297,7 +307,9 @@ export class GameManager {
       this.soundManager.setListenerPosition(this.playerTank.position.x, this.playerTank.position.z);
       this.soundManager.engine(Math.min(1, Math.abs(this.playerTank.speed) / TANK.moveSpeed));
 
-      this.drone.update(delta);
+      for (const d of this.drones) d.update(delta);
+      this._updateAimTarget();
+      this._updateDroneStrikes();
       this._checkDroneRange(delta);
       this.effectsManager.update(delta);
 
@@ -335,7 +347,7 @@ export class GameManager {
     this.roundEndDelayTimer = 0;
     this._resetEndlessState();
     this.regenerateTerrain();
-    this.drone.reset(SPAWN.player);
+    this._resetDrones();
     for (const u of this.enemyUnits) u.ai.setGameState(GameState.PLAYING);
     this.setState(GameState.PLAYING);
     // Straight into the tank — first-person from the first frame.
@@ -351,7 +363,7 @@ export class GameManager {
     this.roundEndDelayTimer = 0;
     this._resetEndlessState();
     this.regenerateTerrain();
-    this.drone.reset(SPAWN.player);
+    this._resetDrones();
     for (const u of this.enemyUnits) u.ai.setGameState(GameState.PLAYING);
     this.setState(GameState.PLAYING);
     this.cameraController.enterFirstPerson(this._canvas);
@@ -454,6 +466,108 @@ export class GameManager {
   }
 
   // ---------------------------------------------------------------------------
+  // Drone fleet: target lock + kamikaze strikes
+  // ---------------------------------------------------------------------------
+
+  /** Minimap compatibility — the base spotter drone. */
+  get drone() {
+    return this.drones[0] ?? null;
+  }
+
+  _resetDrones() {
+    while (this.drones.length > 1) this.drones.pop().dispose();
+    this.drones[0].reset(SPAWN.player);
+  }
+
+  /**
+   * First-person target lock: casts the aim line from the camera eye and
+   * picks the nearest enemy whose (padded) hit sphere it crosses.
+   */
+  _updateAimTarget() {
+    this.aimTarget = null;
+    if (!this.cameraController.isPinned || !this.playerTank.isAlive) return;
+
+    const tank   = this.playerTank;
+    const yaw    = tank.heading + tank.turretAngle;
+    const elev   = tank.getViewElevation();
+    const cosE   = Math.cos(elev);
+    const dir    = { x: Math.sin(yaw) * cosE, y: Math.sin(elev), z: Math.cos(yaw) * cosE };
+    const origin = this.camera.position;
+
+    let best = null, bestT = Infinity;
+    const consider = (entity, cx, cy, cz, radius) => {
+      const ox = cx - origin.x, oy = cy - origin.y, oz = cz - origin.z;
+      const t = ox * dir.x + oy * dir.y + oz * dir.z;   // along-ray distance
+      if (t < 2 || t > TARGETING.maxRange || t >= bestT) return;
+      const px = ox - dir.x * t, py = oy - dir.y * t, pz = oz - dir.z * t;
+      const r  = radius + TARGETING.aimAssist;
+      if (px * px + py * py + pz * pz <= r * r) { best = entity; bestT = t; }
+    };
+
+    for (const u of this.enemyUnits) {
+      if (!u.tank.isAlive) continue;
+      consider(u.tank,
+        u.tank.position.x, u.tank.position.y + COLLISION.tankHitYOffset, u.tank.position.z,
+        COLLISION.tankHitRadius);
+    }
+    for (const e of this.entityManager.alive(en => en.faction === 'enemy')) {
+      const hc = e.getHitCenter();
+      consider(e, hc.x, hc.y, hc.z, e.hitRadius);
+    }
+    this.aimTarget = best;
+  }
+
+  /** True when X should launch a drone strike instead of the machine gun. */
+  _canDroneStrike() {
+    return this.state === GameState.PLAYING
+      && this.cameraController.isPinned
+      && this.aimTarget !== null
+      && this.drones.some(d => d.isAlive && !d.isStriking);
+  }
+
+  _tryDroneStrike() {
+    if (!this._canDroneStrike()) return;
+    const target = this.aimTarget;
+
+    // Prefer spending power-up drones; the base spotter goes last
+    const idle  = this.drones.filter(d => d.isAlive && !d.isStriking);
+    const drone = idle.length > 1 ? idle[idle.length - 1] : idle[0];
+
+    // Track the target while it lives; freeze on its last position after
+    const lastPos = target.getHitCenter
+      ? target.getHitCenter()
+      : target.position.clone();
+    drone.strikeAt(() => {
+      if (target.isAlive) {
+        const p = target.getHitCenter
+          ? target.getHitCenter()
+          : lastPos.set(target.position.x, target.position.y + COLLISION.tankHitYOffset, target.position.z);
+        lastPos.copy(p);
+      }
+      return lastPos;
+    });
+    this._pushMessage('DRONE COMMITTED — STRIKE INBOUND');
+  }
+
+  /** Detonates striking drones on arrival, ground impact, or timeout. */
+  _updateDroneStrikes() {
+    for (const d of this.drones) {
+      if (!d.isAlive || !d.isStriking) continue;
+      const p       = d.position;
+      const aim     = d._strikeFn();
+      const dx = p.x - aim.x, dy = p.y - aim.y, dz = p.z - aim.z;
+      const arrived = (dx * dx + dy * dy + dz * dz) <= DRONE.strikeProximity ** 2;
+      const crashed = p.y <= this.terrain.getHeightAt(p.x, p.z) + 0.5;
+      const expired = d._strikeTimer > DRONE.strikeTimeout;
+      if (arrived || crashed || expired) {
+        const at = p.clone();
+        d.consume();
+        this._handleBombDetonation(at); // same blast as a bomber bomb
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Bomber runs
   // ---------------------------------------------------------------------------
 
@@ -500,12 +614,15 @@ export class GameManager {
       }
     }
 
-    // Ground entities caught in the blast (no points for the bomber's kills)
+    // Entities caught in the blast — 3D distance, so a bomber at altitude
+    // is safe from its own ground bombs but not from a drone strike
     for (const e of this.entityManager.alive()) {
-      if (e.kind === 'bomber' || e.kind === 'powerup') continue;
-      const dx = e.position.x - pos.x;
-      const dz = e.position.z - pos.z;
-      if (dx * dx + dz * dz <= r2) e.takeHit(3);
+      if (e.kind === 'powerup') continue;
+      const hc = e.getHitCenter ? e.getHitCenter() : e.position;
+      const dx = hc.x - pos.x;
+      const dy = (hc.y ?? 0) - pos.y;
+      const dz = hc.z - pos.z;
+      if (dx * dx + dy * dy + dz * dz <= r2) e.takeHit(3);
     }
 
     // Enemy tanks in the blast take top-zone damage too (friendly fire)
@@ -625,12 +742,14 @@ export class GameManager {
    * Checks all live projectiles against the drone.
    */
   _checkDroneHits() {
-    if (!this.drone || !this.drone.isAlive) return;
-    for (const proj of this.projectileManager.getActiveProjectiles()) {
-      if (!proj.isAlive || !proj.position) continue;
-      if (this.drone.tryHit(proj.position, proj.radius)) {
-        proj.kill();
-        break;
+    for (const d of this.drones) {
+      if (!d.isAlive) continue;
+      for (const proj of this.projectileManager.getActiveProjectiles()) {
+        if (!proj.isAlive || !proj.position) continue;
+        if (d.tryHit(proj.position, proj.radius)) {
+          proj.kill();
+          break;
+        }
       }
     }
   }
@@ -785,7 +904,7 @@ export class GameManager {
    * repeats on a cooldown while out of range.
    */
   _checkDroneRange(delta) {
-    if (!this.drone?.isAlive) return;
+    if (!this.drone?.isAlive || this.drone.isStriking) return;
     this._droneRangeTimer -= delta;
     const dx = this.playerTank.position.x - this.drone.center.x;
     const dz = this.playerTank.position.z - this.drone.center.z;
@@ -890,6 +1009,14 @@ export class GameManager {
       } else if (pu.type === 'ap') {
         this._apTimer = POWERUP.apDuration;
         this.playerTank.damageFactor = POWERUP.apFactor;
+      } else if (pu.type === 'drone') {
+        if (this.drones.filter(d => d.isAlive).length >= DRONE.maxFleet) {
+          this._pushMessage('DRONE BAY FULL');
+        } else {
+          const d = new Drone(this.scene);
+          d.reset(this.playerTank.position);
+          this.drones.push(d);
+        }
       }
     }
   }
@@ -1250,7 +1377,7 @@ export class GameManager {
       this.effectsManager,
       this.cameraController,
       this.terrain,
-      this.drone,
+      ...this.drones,
       this.mineManager,
       this.entityManager,
       this.soundManager,
@@ -1288,7 +1415,7 @@ export class GameManager {
     this.collisionManager     = null;
     this.obstacleManager      = null;
     this.effectsManager       = null;
-    this.drone                = null;
+    this.drones               = [];
     this.mineManager          = null;
     this.entityManager        = null;
   }

@@ -50,9 +50,14 @@ export default function GunsightHUD({ playerTankRef, gameManagerRef, gameState }
       ctx.font        = '11px monospace';
       ctx.textAlign   = 'center';
 
-      // ---- Centre reticle ----
+      const gm       = gameManagerRef?.current;
+      const locked   = !!gm?.aimTarget;
+      const canStrike = locked && gm?._canDroneStrike?.();
+
+      // ---- Centre reticle (glows red on target lock) ----
       const ready = tank.canFire;
-      ctx.strokeStyle = ready ? GREEN : GREY;
+      const LOCK  = '#ff3333';
+      ctx.strokeStyle = locked ? LOCK : (ready ? GREEN : GREY);
       // Main cross
       for (const [x0, y0, x1, y1] of [
         [cx - 46, cy, cx - 12, cy], [cx + 12, cy, cx + 46, cy],
@@ -61,8 +66,29 @@ export default function GunsightHUD({ playerTankRef, gameManagerRef, gameState }
         ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
       }
       // Centre dot
-      ctx.fillStyle = ready ? GREEN : GREY;
+      ctx.fillStyle = locked ? LOCK : (ready ? GREEN : GREY);
       ctx.fillRect(cx - 1, cy - 1, 2, 2);
+
+      // ---- Target-lock brackets + strike prompt ----
+      if (locked) {
+        ctx.strokeStyle = LOCK;
+        ctx.lineWidth = 2;
+        const b = 64, arm = 12;
+        for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+          ctx.beginPath();
+          ctx.moveTo(cx + sx * b, cy + sy * (b - arm));
+          ctx.lineTo(cx + sx * b, cy + sy * b);
+          ctx.lineTo(cx + sx * (b - arm), cy + sy * b);
+          ctx.stroke();
+        }
+        ctx.lineWidth = 1.5;
+        ctx.fillStyle = LOCK;
+        ctx.fillText('TARGET LOCK', cx, cy - b - 10);
+        if (canStrike) {
+          ctx.fillStyle = YELLOW;
+          ctx.fillText('X — DRONE STRIKE', cx, cy + b + 18);
+        }
+      }
       // Drop ticks below centre (ballistic reference)
       ctx.strokeStyle = DIM;
       for (let i = 1; i <= 3; i++) {
@@ -127,7 +153,6 @@ export default function GunsightHUD({ playerTankRef, gameManagerRef, gameState }
       const aimYaw = tank.heading + tank.turretAngle;
       let deg = Math.round((-aimYaw * 180 / Math.PI) % 360);
       if (deg < 0) deg += 360;
-      const gm    = gameManagerRef?.current;
       const biome = gm?.terrain?.biomeAt
         ? gm.terrain.biomeAt(tank.position.x, tank.position.z).toUpperCase()
         : '';

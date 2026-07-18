@@ -32,6 +32,25 @@ export default class Drone {
     this._targetCenter.set(pos.x, 0, pos.z);
   }
 
+  /**
+   * Commits this drone to a kamikaze dive. `getTargetPoint()` returns the
+   * current world-space aim point each frame (tracks a moving target).
+   * GameManager watches proximity and triggers the detonation.
+   */
+  strikeAt(getTargetPoint) {
+    this._strikeFn    = getTargetPoint;
+    this._strikeTimer = 0;
+  }
+
+  get isStriking() { return !!this._strikeFn; }
+
+  /** Removes the drone after its strike detonates. */
+  consume() {
+    this.isAlive   = false;
+    this._strikeFn = null;
+    if (this.group) this.group.visible = false;
+  }
+
   /** World-space position of the drone centre. */
   get position() { return this.group.position; }
 
@@ -54,8 +73,12 @@ export default class Drone {
 
   /** Revives the drone and stations it over `pos` (default: world origin). */
   reset(pos = null) {
-    this.isAlive = true;
-    if (this.group) this.group.visible = true;
+    this.isAlive   = true;
+    this._strikeFn = null;
+    if (this.group) {
+      this.group.visible = true;
+      this.group.rotation.x = 0;
+    }
     const x = pos ? pos.x : 0;
     const z = pos ? pos.z : 0;
     this._center.set(x, 0, z);
@@ -110,6 +133,24 @@ export default class Drone {
 
   update(delta) {
     if (!this.isAlive) return;
+
+    // --- Strike mode: dive straight at the tracked point ---
+    if (this._strikeFn) {
+      this._strikeTimer += delta;
+      const p   = this._strikeFn();
+      const dx  = p.x - this.group.position.x;
+      const dy  = p.y - this.group.position.y;
+      const dz  = p.z - this.group.position.z;
+      const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      const step = Math.min(len, DRONE.strikeSpeed * delta);
+      this.group.position.x += (dx / len) * step;
+      this.group.position.y += (dy / len) * step;
+      this.group.position.z += (dz / len) * step;
+      this.group.rotation.y = Math.atan2(dx, dz);
+      this.group.rotation.x = -Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)) * 0.8;
+      return;
+    }
+
     this._angle += DRONE.orbitSpeed * delta;
 
     // Fly toward the tasked station (only moves after a retask order)

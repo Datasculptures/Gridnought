@@ -424,6 +424,7 @@ export const POWERUP = {
     radar:     { color: 0xff00ff, label: 'RADAR' },
     overdrive: { color: 0xff8800, label: 'OVERDRIVE' },
     ap:        { color: 0xff3333, label: 'AP ROUNDS' },
+    drone:     { color: 0x00ff88, label: 'DRONE' },
   },
 };
 
@@ -490,6 +491,16 @@ export const DRONE = {
   bobFrequency:  0.6,   // Hz
   range:         170,   // beyond this from the orbit centre → "out of range"
   retaskLerp:    0.35,  // per-second approach rate when flying to a new station
+  maxFleet:      5,     // spotter + up to 4 power-up drones
+  strikeSpeed:   42,    // kamikaze dive speed
+  strikeProximity: 3.5, // detonation distance from the target point
+  strikeTimeout: 18,    // seconds before a strike self-detonates
+};
+
+// Gunsight target lock
+export const TARGETING = {
+  maxRange: 260,        // lock acquisition distance
+  aimAssist: 0.7,       // extra radius added to hit spheres for the lock test
 };
 
 // Enemy bomber — periodic straight-line bombing runs over the player

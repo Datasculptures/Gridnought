@@ -432,9 +432,10 @@ export default class Tank {
       }
     }
 
-    // 11b. Machine gun burst (player only — X key)
+    // 11b. Machine gun burst (player only — X key).
+    // Stands down while X is bound to a drone strike on a locked target.
     if (this.inputManager) {
-      const xDown = this.inputManager.isKeyDown('KeyX');
+      const xDown = this.inputManager.isKeyDown('KeyX') && !(this.mgSuppressed?.());
       if (xDown && !this._xWasDown && this._mgCooldown <= 0 && this._mgBurstLeft === 0) {
         this._mgBurstLeft  = MACHINEGUN.burstCount;
         this._mgBurstTimer = 0;
