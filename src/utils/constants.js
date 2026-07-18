@@ -39,17 +39,6 @@ export const RIVER = {
   fordDepth: 0.4,               // near-level crossings under the bridge decks
 };
 
-// Bridges — idealized wireframe crossings generated at river fords
-export const BRIDGE = {
-  railLength: 30,
-  railHeight: 1.0,
-  railThickness: 0.35,
-  halfSpacing: 3.2,             // rail offset each side of the deck centreline
-  pylon: { width: 0.6, height: 1.6, depth: 0.6 },
-  minFordSamples: 4,            // chunk must contain this many ford cells
-  minOriginDist: 210,           // no bridges where rivers fade near spawn
-};
-
 // Roads — flattened strips connecting adjacent city biome centres
 export const ROAD = {
   halfWidth: 5,                 // full flat width = 10

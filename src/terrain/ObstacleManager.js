@@ -1,6 +1,6 @@
 import Obstacle from './Obstacle.js';
 import { seededRandom } from './noise.js';
-import { COLLISION, OBSTACLES, SPAWN, CHUNK, CELL_SIZE, BRIDGE, CITY } from '../utils/constants.js';
+import { COLLISION, OBSTACLES, SPAWN, CHUNK, CELL_SIZE, CITY } from '../utils/constants.js';
 
 /**
  * Chunk-based obstacle system for the infinite world.
@@ -62,18 +62,15 @@ export default class ObstacleManager {
 
     const descriptors = [];
     switch (biome) {
-      case 'forest':    this._genScatter(descriptors, rng, origin, 'tree',    10 + Math.floor(rng() * 5)); break;
-      case 'hills':     this._genScatter(descriptors, rng, origin, 'pyramid',  2 + Math.floor(rng() * 3)); break;
-      case 'desert':    this._genScatter(descriptors, rng, origin, 'rock',     1 + Math.floor(rng() * 3)); break;
-      case 'mountains': this._genScatter(descriptors, rng, origin, 'rock',     Math.floor(rng() * 2));     break;
-      case 'plains':    this._genScatter(descriptors, rng, origin, 'mixed',    1 + Math.floor(rng() * 3)); break;
-      case 'city':      this._genCityBlocks(descriptors, origin);                                          break;
-      case 'fortress':  this._genFortress(descriptors, rng, chunk, origin);                                break;
+      case 'forest':    this._genScatter(descriptors, rng, origin, 'tree',   10 + Math.floor(rng() * 5)); break;
+      case 'hills':     this._genScatter(descriptors, rng, origin, 'blocks',  2 + Math.floor(rng() * 3)); break;
+      case 'desert':    this._genScatter(descriptors, rng, origin, 'blocks',  1 + Math.floor(rng() * 3)); break;
+      case 'mountains': this._genScatter(descriptors, rng, origin, 'blocks',  Math.floor(rng() * 2));     break;
+      case 'plains':    this._genScatter(descriptors, rng, origin, 'mixed',   1 + Math.floor(rng() * 3)); break;
+      case 'city':      this._genCityBlocks(descriptors, origin);                                         break;
+      case 'fortress':  this._genFortress(descriptors, rng, chunk, origin);                               break;
       default: break;
     }
-
-    // Bridge structures at river ford crossings (any biome)
-    this._genBridge(descriptors, origin);
 
     const obstacles = [];
     for (const desc of descriptors) {
@@ -83,67 +80,6 @@ export default class ObstacleManager {
     this._byChunk.set(key, obstacles);
   }
 
-  /**
-   * Scans the chunk for a river ford; if one is present, assembles the
-   * standard bridge over it: two guard rails along the crossing direction
-   * and a pylon at each rail end. The ford terrain itself is causeway-flat,
-   * so the tank drives the deck line between the rails.
-   */
-  _genBridge(out, origin) {
-    const wg = this.terrain.worldGen;
-
-    // Ford cells in this chunk (coarse 4-unit scan)
-    let n = 0, sx = 0, sz = 0;
-    for (let dz = 2; dz < CHUNK.size; dz += 4) {
-      for (let dx = 2; dx < CHUNK.size; dx += 4) {
-        const wx = origin.x + dx, wz = origin.z + dz;
-        if (wg.riverInfoAt(wx, wz).isFord) { n++; sx += wx; sz += wz; }
-      }
-    }
-    if (n < BRIDGE.minFordSamples) return;
-
-    const cx = sx / n, cz = sz / n;
-    if (Math.sqrt(cx * cx + cz * cz) < BRIDGE.minOriginDist) return; // rivers fade near spawn
-
-    // Crossing direction (perpendicular to the channel) and its normal
-    const dir  = wg.riverCrossingDir(cx, cz);
-    const perp = { x: -dir.z, z: dir.x };
-    // Box local +X maps to world (cosR, -sinR): align local X with `dir`
-    const rot = Math.atan2(-dir.z, dir.x);
-
-    // Rails sit level at bank height — never partially buried in the dip
-    const hEndA = this.terrain.getHeightAt(cx + dir.x * BRIDGE.railLength / 2, cz + dir.z * BRIDGE.railLength / 2);
-    const hEndB = this.terrain.getHeightAt(cx - dir.x * BRIDGE.railLength / 2, cz - dir.z * BRIDGE.railLength / 2);
-    const deckY = Math.max(hEndA, hEndB, 0.2);
-
-    // Guard rails either side of the deck
-    for (const s of [-1, 1]) {
-      out.push({
-        type: 'wall',
-        skipFilter: true,
-        baseY: deckY,
-        position: {
-          x: cx + perp.x * BRIDGE.halfSpacing * s,
-          z: cz + perp.z * BRIDGE.halfSpacing * s,
-        },
-        rotation: rot,
-        dimensions: { width: BRIDGE.railLength, height: BRIDGE.railHeight, depth: BRIDGE.railThickness },
-      });
-      // Pylons at both ends of this rail
-      for (const e of [-1, 1]) {
-        out.push({
-          type: 'cube',
-          skipFilter: true,
-          position: {
-            x: cx + perp.x * BRIDGE.halfSpacing * s + dir.x * (BRIDGE.railLength / 2) * e,
-            z: cz + perp.z * BRIDGE.halfSpacing * s + dir.z * (BRIDGE.railLength / 2) * e,
-          },
-          rotation: rot,
-          dimensions: { ...BRIDGE.pylon },
-        });
-      }
-    }
-  }
 
   /** Common placement filter: spawn clearance, slope, rivers, roads. */
   _placementOk(x, z) {
@@ -172,17 +108,14 @@ export default class ObstacleManager {
         const s = 0.7 + rng() * 0.7;
         type = 'tree';
         dims = { width: t.width * s, height: t.height * s, depth: t.depth * s };
-      } else if (family === 'pyramid') {
-        const t = OBSTACLES.types.pyramid;
-        type = 'pyramid';
-        dims = { width: t.width, height: t.height, depth: t.depth };
-      } else if (family === 'rock') {
-        const t = rng() < 0.5 ? OBSTACLES.types.cube : OBSTACLES.types.wedge;
-        type = rng() < 0.5 ? 'cube' : 'wedge';
+      } else if (family === 'blocks') {
+        // Building-like shapes only: cubes and cylinders
+        type = rng() < 0.65 ? 'cube' : 'cylinder';
+        const t = OBSTACLES.types[type];
         dims = { width: t.width, height: t.height * (0.6 + rng() * 0.6), depth: t.depth };
       } else {
-        // mixed cover for plains
-        const pool  = ['cube', 'tallCube', 'wall', 'wedge'];
+        // mixed cover for plains: blocks, slabs, cylinders
+        const pool  = ['cube', 'tallCube', 'wall', 'cylinder'];
         type = pool[Math.floor(rng() * pool.length)];
         const t = OBSTACLES.types[type];
         dims = { width: t.width, height: t.height, depth: t.depth };
@@ -314,7 +247,7 @@ export default class ObstacleManager {
     if (cell.type !== 'fortress') {
       // Chunk is fortress-dominant but nearest cell resolution disagrees —
       // sparse cylinders as fallback cover
-      this._genScatter(out, rng, origin, 'rock', 1);
+      this._genScatter(out, rng, origin, 'blocks', 1);
       return;
     }
 
