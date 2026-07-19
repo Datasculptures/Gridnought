@@ -161,7 +161,20 @@ export default class Tank {
     this.hullMesh = new THREE.Mesh(hullGeo, this._wireMat);
     this.hullMesh.position.y = TANK.hull.height / 2;
 
-    // ---- Sloped glacis plate (visual) — wedge-like front ----
+    // ---- Detail parts (visual only — armor logic stays on the hull box) ----
+    this._extraGeos = [];
+    // Adds a solid+wire pair of `geo` to `parent` at (x,y,z) with rotation
+    const detail = (geo, parent, x, y, z, rx = 0, ry = 0, rz = 0) => {
+      this._extraGeos.push(geo);
+      for (const mat of [this._solidMat, this._wireMat]) {
+        const m = new THREE.Mesh(geo, mat);
+        m.position.set(x, y, z);
+        m.rotation.set(rx, ry, rz);
+        parent.add(m);
+      }
+    };
+
+    // ---- Sloped glacis plate — wedge-like front ----
     this._glacisGeo = new THREE.BoxGeometry(TANK.hull.width * 0.96, 0.98, 0.12);
     const glacisSolid = new THREE.Mesh(this._glacisGeo, this._solidMat);
     const glacisWire  = new THREE.Mesh(this._glacisGeo, this._wireMat);
@@ -171,6 +184,21 @@ export default class Tank {
       m.rotation.x = -0.70;
     }
 
+    // ---- Hull greebles: skirts, fenders, engine deck, exhausts, sensors ----
+    const skirtGeo = new THREE.BoxGeometry(0.12, 0.36, 3.3);
+    detail(skirtGeo, this.group,  1.26, 0.40, 0);
+    detail(skirtGeo, this.group, -1.26, 0.40, 0);
+    const fenderGeo = new THREE.BoxGeometry(0.32, 0.08, 3.4);
+    detail(fenderGeo, this.group,  1.12, 1.05, 0);
+    detail(fenderGeo, this.group, -1.12, 1.05, 0);
+    detail(new THREE.BoxGeometry(1.8, 0.18, 0.95), this.group, 0, 1.08, -1.20); // engine deck
+    const exhaustGeo = new THREE.BoxGeometry(0.18, 0.15, 0.5);
+    detail(exhaustGeo, this.group,  0.72, 1.14, -1.55);
+    detail(exhaustGeo, this.group, -0.72, 1.14, -1.55);
+    const sensorGeo = new THREE.BoxGeometry(0.22, 0.16, 0.22);
+    detail(sensorGeo, this.group,  0.92, 1.06, 1.50); // front sensor pods
+    detail(sensorGeo, this.group, -0.92, 1.06, 1.50);
+
     // ---- Turret pivot ----
     this.turretPivot = new THREE.Group();
 
@@ -179,6 +207,15 @@ export default class Tank {
     this.turretSolidMesh.position.set(0, TANK.turret.yOffset, 0);
     this.turretMesh = new THREE.Mesh(turretGeo, this._wireMat);
     this.turretMesh.position.set(0, TANK.turret.yOffset, 0);
+
+    // ---- Turret greebles: bustle, cupola, angled side plates, mast, mantlet ----
+    detail(new THREE.BoxGeometry(1.15, 0.48, 0.55), this.turretPivot, 0, 0.85, -1.12); // bustle
+    detail(new THREE.CylinderGeometry(0.27, 0.27, 0.22, 6), this.turretPivot, -0.42, 1.30, -0.25); // cupola
+    const platGeo = new THREE.BoxGeometry(0.08, 0.52, 1.25);
+    detail(platGeo, this.turretPivot,  0.88, 0.85, -0.1, 0, 0, -0.22); // angled side plates
+    detail(platGeo, this.turretPivot, -0.88, 0.85, -0.1, 0, 0,  0.22);
+    detail(new THREE.BoxGeometry(0.05, 0.62, 0.05), this.turretPivot, 0.55, 1.45, -0.62); // sensor mast
+    detail(new THREE.BoxGeometry(0.82, 0.46, 0.28), this.turretPivot, 0, 1.08, 0.95);     // gun mantlet
 
     // ---- Barrel elevation pivot ----
     this.barrelElevPivot = new THREE.Group();
@@ -193,6 +230,19 @@ export default class Tank {
     this.barrelMesh = new THREE.Mesh(barrelGeo, this._wireMat);
     this.barrelMesh.rotation.x = Math.PI / 2;
     this.barrelMesh.position.set(0, 0, TANK.barrel.length / 2);
+
+    // ---- Barrel greebles: base sleeve + muzzle brake (elevate with the gun) ----
+    const sleeveGeo = new THREE.CylinderGeometry(0.16, 0.16, 0.7, 5);
+    const muzzleGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.38, 5);
+    for (const [geo, z] of [[sleeveGeo, 0.5], [muzzleGeo, 2.72]]) {
+      this._extraGeos.push(geo);
+      for (const mat of [this._solidMat, this._wireMat]) {
+        const m = new THREE.Mesh(geo, mat);
+        m.rotation.x = Math.PI / 2;
+        m.position.set(0, 0, z);
+        this.barrelElevPivot.add(m);
+      }
+    }
 
     // ---- Assembly ----
     this.barrelElevPivot.add(this.barrelSolidMesh);
@@ -641,6 +691,7 @@ export default class Tank {
       if (this.turretMesh) this.turretMesh.geometry.dispose();
       if (this.barrelMesh) this.barrelMesh.geometry.dispose();
       if (this._glacisGeo) { this._glacisGeo.dispose(); this._glacisGeo = null; }
+      if (this._extraGeos) { this._extraGeos.forEach(g => g.dispose()); this._extraGeos = null; }
       this.group = null;
     }
 

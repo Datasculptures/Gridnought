@@ -51,6 +51,18 @@ function buildTank(color, opts = {}) {
   geos.push(box(g, S, W, 2.4, 1.0, 3.6, 0, 0.5, 0));            // hull
   geos.push(box(g, S, W, 2.3, 0.98, 0.12, 0, 0.675, 1.58, -0.70)); // glacis
   geos.push(box(g, S, W, 1.6, 0.7, 1.8, 0, 1.35, 0));           // turret
+  // Greebles matching the in-game model
+  geos.push(box(g, S, W, 0.12, 0.36, 3.3,  1.26, 0.40, 0));     // skirts
+  geos.push(box(g, S, W, 0.12, 0.36, 3.3, -1.26, 0.40, 0));
+  geos.push(box(g, S, W, 1.8, 0.18, 0.95, 0, 1.08, -1.20));     // engine deck
+  geos.push(box(g, S, W, 1.15, 0.48, 0.55, 0, 1.35, -1.12));    // bustle
+  geos.push(box(g, S, W, 0.82, 0.46, 0.28, 0, 1.58, 0.95));     // mantlet
+  const cupGeo = new THREE.CylinderGeometry(0.27, 0.27, 0.22, 6);
+  for (const m of [new THREE.Mesh(cupGeo, S), new THREE.Mesh(cupGeo, W)]) {
+    m.position.set(-0.42, 1.80, -0.25);
+    g.add(m);
+  }
+  geos.push(cupGeo);
   if (opts.twinBarrel) {
     const bg = new THREE.CylinderGeometry(0.09, 0.09, 2.4, 4);
     for (const bx of [-0.3, 0.3]) {
