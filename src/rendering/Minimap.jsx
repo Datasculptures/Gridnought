@@ -221,6 +221,14 @@ export default function Minimap({
               ctx.restore();
               break;
             }
+            case 'turret': {
+              // Immobile emplacement: red hollow square
+              const s = MINIMAP.tankRadius * 0.9;
+              ctx.strokeStyle = '#ff4444';
+              ctx.lineWidth = 1.5;
+              ctx.strokeRect(px - s, py - s, s * 2, s * 2);
+              break;
+            }
             case 'jammer':
               ctx.strokeStyle = '#ff2222';
               ctx.lineWidth   = 1.5;

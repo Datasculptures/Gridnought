@@ -43,6 +43,14 @@ export const WeaponType = Object.freeze({
     damage:      2,
     penetrating: true,
   }),
+  // Emplacement gun — turret defenses; long reach, tank-grade shells
+  EMPLACEMENT_CANNON: Object.freeze({
+    id:          'EMPLACEMENT_CANNON',
+    label:       'Emplacement Cannon',
+    range:       85,
+    damage:      2,
+    penetrating: true,
+  }),
   HEAVY_CANNON: Object.freeze({
     id:          'HEAVY_CANNON',
     label:       'Heavy Cannon',

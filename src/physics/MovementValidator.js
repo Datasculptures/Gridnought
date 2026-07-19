@@ -1,4 +1,4 @@
-import { CELL_SIZE, TANK, COLLISION } from '../utils/constants.js';
+import { CELL_SIZE, TANK, COLLISION, HAZARD } from '../utils/constants.js';
 
 const BLOCK_R = COLLISION.vehicleBlockRadius; // convenience alias
 
@@ -69,9 +69,17 @@ export default class MovementValidator {
   /**
    * Determines whether moving from (fromX, fromZ) to (toX, toZ) is legal.
    * Returns { allowed: boolean, reason: string }.
+   * @param {boolean} avoidDeep - AI movers pass true: deep ravine terrain is
+   *   treated as impassable so enemies never drive into the water hazards
+   *   (the player remains free to take the risk).
    */
-  canMoveTo(fromX, fromZ, toX, toZ) {
+  canMoveTo(fromX, fromZ, toX, toZ, avoidDeep = false) {
     // The world is infinite — no bounds check.
+
+    // Step 1 — AI ravine avoidance
+    if (avoidDeep && this.terrain.getHeightAt(toX, toZ) < HAZARD.maxAIDepth) {
+      return { allowed: false, reason: 'ravine' };
+    }
 
     // Step 2 — Grid passability (cardinal direction)
     const dir = this.getMovementDirection(fromX, fromZ, toX, toZ);

@@ -174,15 +174,6 @@ export default class Tank {
       }
     };
 
-    // ---- Sloped glacis plate — wedge-like front ----
-    this._glacisGeo = new THREE.BoxGeometry(TANK.hull.width * 0.96, 0.98, 0.12);
-    const glacisSolid = new THREE.Mesh(this._glacisGeo, this._solidMat);
-    const glacisWire  = new THREE.Mesh(this._glacisGeo, this._wireMat);
-    // Leans from the hull top (near the turret) down to the front lower lip
-    for (const m of [glacisSolid, glacisWire]) {
-      m.position.set(0, 0.675, TANK.hull.depth / 2 - 0.22);
-      m.rotation.x = -0.70;
-    }
 
     // ---- Hull greebles: skirts, fenders, engine deck, exhausts, sensors ----
     const skirtGeo = new THREE.BoxGeometry(0.12, 0.36, 3.3);
@@ -209,13 +200,13 @@ export default class Tank {
     this.turretMesh.position.set(0, TANK.turret.yOffset, 0);
 
     // ---- Turret greebles: bustle, cupola, angled side plates, mast, mantlet ----
-    detail(new THREE.BoxGeometry(1.15, 0.48, 0.55), this.turretPivot, 0, 0.85, -1.12); // bustle
-    detail(new THREE.CylinderGeometry(0.27, 0.27, 0.22, 6), this.turretPivot, -0.42, 1.30, -0.25); // cupola
+    detail(new THREE.BoxGeometry(1.15, 0.48, 0.55), this.turretPivot, 0, 1.35, -1.12); // bustle
+    detail(new THREE.CylinderGeometry(0.27, 0.27, 0.22, 6), this.turretPivot, -0.42, 1.80, -0.25); // cupola
     const platGeo = new THREE.BoxGeometry(0.08, 0.52, 1.25);
-    detail(platGeo, this.turretPivot,  0.88, 0.85, -0.1, 0, 0, -0.22); // angled side plates
-    detail(platGeo, this.turretPivot, -0.88, 0.85, -0.1, 0, 0,  0.22);
-    detail(new THREE.BoxGeometry(0.05, 0.62, 0.05), this.turretPivot, 0.55, 1.45, -0.62); // sensor mast
-    detail(new THREE.BoxGeometry(0.82, 0.46, 0.28), this.turretPivot, 0, 1.08, 0.95);     // gun mantlet
+    detail(platGeo, this.turretPivot,  0.88, 1.35, -0.1, 0, 0, -0.22); // angled side plates
+    detail(platGeo, this.turretPivot, -0.88, 1.35, -0.1, 0, 0,  0.22);
+    detail(new THREE.BoxGeometry(0.05, 0.62, 0.05), this.turretPivot, 0.55, 1.95, -0.62); // sensor mast
+    detail(new THREE.BoxGeometry(0.82, 0.46, 0.28), this.turretPivot, 0, 1.58, 0.95);     // gun mantlet
 
     // ---- Barrel elevation pivot ----
     this.barrelElevPivot = new THREE.Group();
@@ -252,8 +243,6 @@ export default class Tank {
     this.turretPivot.add(this.barrelElevPivot);
     this.group.add(this.hullSolidMesh);
     this.group.add(this.hullMesh);
-    this.group.add(glacisSolid);
-    this.group.add(glacisWire);
     this.group.add(this.turretPivot);
   }
 
@@ -447,14 +436,16 @@ export default class Tank {
     const newZ  = fromZ + Math.cos(this.heading) * effectiveSpeed * delta;
 
     // 7. Movement validation — wall-slide on rejection (vehicle blocking skips slide)
+    // AI tanks refuse ravine terrain; the player may risk it
+    const avoidDeep = !this.inputManager;
     const vBlocked = this.movementValidator.isVehicleBlocked(newX, newZ, this);
-    const check    = this.movementValidator.canMoveTo(fromX, fromZ, newX, newZ);
+    const check    = this.movementValidator.canMoveTo(fromX, fromZ, newX, newZ, avoidDeep);
     if (check.allowed && !vBlocked) {
       this.position.x = newX;
       this.position.z = newZ;
     } else if (!vBlocked) {
-      const checkX = this.movementValidator.canMoveTo(fromX, fromZ, newX, fromZ);
-      const checkZ = this.movementValidator.canMoveTo(fromX, fromZ, fromX, newZ);
+      const checkX = this.movementValidator.canMoveTo(fromX, fromZ, newX, fromZ, avoidDeep);
+      const checkZ = this.movementValidator.canMoveTo(fromX, fromZ, fromX, newZ, avoidDeep);
       if (checkX.allowed) this.position.x = newX;
       if (checkZ.allowed) this.position.z = newZ;
       // Do NOT zero speed — keep it so the player can reverse out immediately
@@ -690,7 +681,6 @@ export default class Tank {
       if (this.hullMesh)   this.hullMesh.geometry.dispose();
       if (this.turretMesh) this.turretMesh.geometry.dispose();
       if (this.barrelMesh) this.barrelMesh.geometry.dispose();
-      if (this._glacisGeo) { this._glacisGeo.dispose(); this._glacisGeo = null; }
       if (this._extraGeos) { this._extraGeos.forEach(g => g.dispose()); this._extraGeos = null; }
       this.group = null;
     }

@@ -79,6 +79,8 @@ export default class EntityManager {
         const r  = e.hitRadius;
         if (dx * dx + dy * dy + dz * dz <= r * r) {
           proj.kill();
+          // Non-penetrating rounds bounce off armoured entities (turrets)
+          if (proj.weaponType?.penetrating === false && e.isArmoured) break;
           const destroyed = e.takeHit((proj.weaponType?.damage ?? 1) * (proj.damageMultiplier ?? 1));
           if (destroyed && typeof this._onKill === 'function') {
             try {

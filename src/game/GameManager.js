@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER, COLLISION, TARGETING } from '../utils/constants.js';
+import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER, COLLISION, TARGETING, EMPLACEMENT } from '../utils/constants.js';
 import GameState from './GameState.js';
 import InputManager from '../input/InputManager.js';
 import ChunkedTerrain from '../terrain/ChunkedTerrain.js';
@@ -18,6 +18,7 @@ import JammerTruck   from '../entities/JammerTruck.js';
 import EntityManager from '../entities/EntityManager.js';
 import PowerUp from '../entities/PowerUp.js';
 import Bomber from '../entities/Bomber.js';
+import TurretEmplacement from '../entities/TurretEmplacement.js';
 import SoundManager from '../audio/SoundManager.js';
 import Drone from '../entities/Drone.js';
 import MineManager from '../entities/MineManager.js';
@@ -1115,8 +1116,28 @@ export class GameManager {
         }
       }
 
-      // Distance-scaled infantry — the world gets meaner the farther you go
+      // Turret emplacements — fortress defenders + scattered strongpoints
       const originDist = Math.sqrt(cx * cx + cz * cz);
+      const biome = this.terrain.biomeAt(cx, cz);
+      if (originDist >= EMPLACEMENT.minOriginDist) {
+        const chance = biome === 'fortress' ? EMPLACEMENT.fortressChance : EMPLACEMENT.chunkChance;
+        const liveTurrets = this.entityManager.alive(e => e.kind === 'turret').length;
+        if (liveTurrets < EMPLACEMENT.maxLive && Math.random() < chance) {
+          const x = chunk.cx * CHUNK.size + 6 + Math.random() * (CHUNK.size - 12);
+          const z = chunk.cz * CHUNK.size + 6 + Math.random() * (CHUNK.size - 12);
+          const y = this.terrain.getHeightAt(x, z);
+          const clear = y > -1.2
+            && !this.obstacleManager.checkTankCollision({ x, y: y + 1, z }, 3).blocked;
+          if (clear) {
+            this.entityManager.add(new TurretEmplacement(this.scene, {
+              position: { x, z },
+              terrain: this.terrain,
+            }));
+          }
+        }
+      }
+
+      // Distance-scaled infantry — the world gets meaner the farther you go
       if (originDist < ENDLESS.infantrySafeRadius) return;
       const chance = Math.min(
         ENDLESS.infantryMaxChance,

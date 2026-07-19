@@ -88,9 +88,9 @@ export default class InfantryUnit {
     // Legs
     part(new THREE.BoxGeometry(0.12, 0.32, 0.16), -0.10, 0.16, 0);
     part(new THREE.BoxGeometry(0.12, 0.32, 0.16),  0.10, 0.16, 0);
-    // Arms — slightly splayed
-    part(new THREE.BoxGeometry(0.10, 0.30, 0.14), -0.25, 0.56, 0,  0.35);
-    part(new THREE.BoxGeometry(0.10, 0.30, 0.14),  0.25, 0.56, 0, -0.35);
+    // Arms — /|\ stance: tops at the shoulders, bottoms flared outward
+    part(new THREE.BoxGeometry(0.10, 0.30, 0.14), -0.22, 0.50, 0, -0.35);
+    part(new THREE.BoxGeometry(0.10, 0.30, 0.14),  0.22, 0.50, 0,  0.35);
     // Sphere head
     part(new THREE.SphereGeometry(0.15, 6, 5), 0, 0.88, 0);
   }
@@ -151,7 +151,7 @@ export default class InfantryUnit {
       const nx = this.position.x + Math.sin(this.heading) * this.speed * delta;
       const nz = this.position.z + Math.cos(this.heading) * this.speed * delta;
       const check = this.movementValidator.canMoveTo(
-        this.position.x, this.position.z, nx, nz,
+        this.position.x, this.position.z, nx, nz, true,
       );
       const mineSafe = !this.mineManager || !this.mineManager.isMineNearby(nx, nz);
       if (check.allowed && mineSafe) {

@@ -49,7 +49,6 @@ function buildTank(color, opts = {}) {
   const g = new THREE.Group();
   const geos = [];
   geos.push(box(g, S, W, 2.4, 1.0, 3.6, 0, 0.5, 0));            // hull
-  geos.push(box(g, S, W, 2.3, 0.98, 0.12, 0, 0.675, 1.58, -0.70)); // glacis
   geos.push(box(g, S, W, 1.6, 0.7, 1.8, 0, 1.35, 0));           // turret
   // Greebles matching the in-game model
   geos.push(box(g, S, W, 0.12, 0.36, 3.3,  1.26, 0.40, 0));     // skirts
@@ -95,9 +94,10 @@ function buildInfantry(color) {
   geos.push(box(g, S, W, 0.12, 0.32, 0.16, -0.10, 0.16, 0));          // legs
   geos.push(box(g, S, W, 0.12, 0.32, 0.16,  0.10, 0.16, 0));
   const armGeo = new THREE.BoxGeometry(0.10, 0.30, 0.14);
-  for (const [ax, rz] of [[-0.25, 0.35], [0.25, -0.35]]) {
+  // /|\ stance — tops at the shoulders, bottoms flared outward
+  for (const [ax, rz] of [[-0.22, -0.35], [0.22, 0.35]]) {
     for (const m of [new THREE.Mesh(armGeo, S), new THREE.Mesh(armGeo, W)]) {
-      m.position.set(ax, 0.56, 0);
+      m.position.set(ax, 0.50, 0);
       m.rotation.z = rz;
       g.add(m);
     }
@@ -163,6 +163,29 @@ function buildDrone(color) {
   geos.push(box(g, S, W, 0.9, 0.3, 1.8, 0, 0, 0));
   geos.push(box(g, S, W, 10.0, 0.12, 0.7, 0, 0, 0));
   geos.push(box(g, S, W, 3.0, 0.10, 0.45, 0, 0, -0.85));
+  return { group: g, mats: [S, W], geos };
+}
+
+function buildTurret(color) {
+  const S = solidMat();
+  const W = new THREE.MeshBasicMaterial({ color, wireframe: true });
+  const g = new THREE.Group();
+  const geos = [];
+  geos.push(box(g, S, W, 2.6, 0.7, 2.6, 0, 0.35, 0));   // pedestal
+  const collarGeo = new THREE.CylinderGeometry(1.15, 1.45, 0.5, 8);
+  for (const m of [new THREE.Mesh(collarGeo, S), new THREE.Mesh(collarGeo, W)]) {
+    m.position.set(0, 0.9, 0);
+    g.add(m);
+  }
+  geos.push(collarGeo);
+  geos.push(box(g, S, W, 1.6, 0.7, 1.8, 0, 1.5, 0));    // turret
+  const barrelGeo = new THREE.CylinderGeometry(0.1, 0.1, 3.0, 4);
+  for (const m of [new THREE.Mesh(barrelGeo, S), new THREE.Mesh(barrelGeo, W)]) {
+    m.rotation.x = Math.PI / 2;
+    m.position.set(0, 1.57, 2.3);
+    g.add(m);
+  }
+  geos.push(barrelGeo);
   return { group: g, mats: [S, W], geos };
 }
 
@@ -271,6 +294,7 @@ export default function HowToPage({ visible, onBack }) {
     place('APC · 5 PTS · DEPLOYS INFANTRY', buildAPC(0xff6666), -2, -6, Math.PI);
     place('JAMMER · 5 PTS · SCRAMBLES SENSORS', buildTruck(0xff2222, { dish: true }), 10, -6, Math.PI);
     place('MINEFIELD — KEEP CLEAR', buildMine(), 20, -6, 0, 1.8);
+    place('TURRET EMPLACEMENT · 6 PTS', buildTurret(RED), 28, -18, Math.PI);
 
     // Row 3 — air
     place('BOMBER · 20 PTS · SHOOT IT DOWN', buildBomber(RED), -14, 6, Math.PI * 0.5, 10.5, 7);

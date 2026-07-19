@@ -38,7 +38,7 @@ export const BIOME = {
 // River network carved through the world (any biome)
 export const RIVER = {
   fieldScale: 0.0045,           // noise frequency for the river field
-  channelWidth: 0.05,           // |field| below this → river channel
+  channelWidth: 0.075,          // |field| below this → river channel (wider ravines)
   maxDepth: 9,                  // carve depth at channel centre
   fordScale: 0.02,              // ford noise frequency
   fordThreshold: 0.45,          // lower → more fords, so more bridges
@@ -65,7 +65,7 @@ export const CITY = {
 // Water surface in deep ravines (visual only)
 export const WATER = {
   enabled: true,
-  level: -5.5,                  // world Y — only deep river channels flood
+  level: -4.5,                  // world Y — higher water makes ravines read clearly
   fillColor: 0x1133cc,
   fillOpacity: 0.28,
   gridColor: 0x3366ff,
@@ -142,7 +142,7 @@ export const TANK = {
     width: 1.6,
     height: 0.7,
     depth: 1.8,
-    yOffset: 0.85,            // hull.height/2 + turret.height/2
+    yOffset: 1.35,            // hull.height + turret.height/2 — sits ON the hull
   },
   barrel: {
     length: 3.0,
@@ -153,7 +153,7 @@ export const TANK = {
     minElevation: -0.35,      // ~-20° — allows aiming at ground targets
     maxElevation: 1.25,       // ~72° — high arc
     elevationSpeed: 1.2,      // radians per second
-    topOffset: 1.1,           // barrel pivot Y above turret pivot origin (sits on turret top)
+    topOffset: 1.5,           // barrel pivot Y — level with the raised turret centre
   },
 
   // Terrain interaction
@@ -495,6 +495,27 @@ export const DRONE = {
   strikeSpeed:   42,    // kamikaze dive speed
   strikeProximity: 3.5, // detonation distance from the target point
   strikeTimeout: 18,    // seconds before a strike self-detonates
+};
+
+// AI hazard avoidance — AI-controlled movers refuse terrain deeper than this
+export const HAZARD = {
+  maxAIDepth: -2.2,     // ravine walls below this height are a no-go for AI
+};
+
+// Turret emplacements — immobile enemy tanks
+export const EMPLACEMENT = {
+  hp: 4,
+  hitRadius: 2.2,
+  score: 6,
+  range: 75,            // engagement range
+  traverse: 1.1,        // turret slew rad/s
+  aimTolerance: 0.09,
+  cooldown: 3.2,        // seconds between shots
+  muzzleVelocity: 30,
+  maxLive: 10,          // world population cap
+  chunkChance: 0.09,    // ambient spawn chance per distant chunk
+  minOriginDist: 250,
+  fortressChance: 0.6,  // chance per fortress-biome chunk
 };
 
 // Gunsight target lock

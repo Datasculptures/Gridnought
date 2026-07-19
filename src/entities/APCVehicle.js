@@ -180,14 +180,14 @@ export default class APCVehicle {
       this._reverseTimer -= delta;
       const rx = this.position.x - Math.sin(this.heading) * this.speed * 0.5 * delta;
       const rz = this.position.z - Math.cos(this.heading) * this.speed * 0.5 * delta;
-      if (this.movementValidator.canMoveTo(this.position.x, this.position.z, rx, rz).allowed) {
+      if (this.movementValidator.canMoveTo(this.position.x, this.position.z, rx, rz, true).allowed) {
         this.position.x = rx;
         this.position.z = rz;
       }
     } else {
       const nx = this.position.x + Math.sin(this.heading) * this.speed * delta;
       const nz = this.position.z + Math.cos(this.heading) * this.speed * delta;
-      const check    = this.movementValidator.canMoveTo(this.position.x, this.position.z, nx, nz);
+      const check    = this.movementValidator.canMoveTo(this.position.x, this.position.z, nx, nz, true);
       const mineSafe = !this.mineManager || !this.mineManager.isMineNearby(nx, nz);
       const vFree    = !this.movementValidator.isVehicleBlocked(nx, nz, this);
       if (check.allowed && mineSafe && vFree) {
