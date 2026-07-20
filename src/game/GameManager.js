@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER, COLLISION, TARGETING, EMPLACEMENT } from '../utils/constants.js';
+import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER, COLLISION, TARGETING, EMPLACEMENT, BASE, TRENCH } from '../utils/constants.js';
 import GameState from './GameState.js';
 import InputManager from '../input/InputManager.js';
 import ChunkedTerrain from '../terrain/ChunkedTerrain.js';
+import { seededRandom } from '../terrain/noise.js';
 import EffectsManager from '../rendering/EffectsManager.js';
 import CameraController from '../camera/CameraController.js';
 import MovementValidator from '../physics/MovementValidator.js';
@@ -19,6 +20,8 @@ import EntityManager from '../entities/EntityManager.js';
 import PowerUp from '../entities/PowerUp.js';
 import Bomber from '../entities/Bomber.js';
 import TurretEmplacement from '../entities/TurretEmplacement.js';
+import DestructibleBuilding from '../entities/DestructibleBuilding.js';
+import Trench from '../entities/Trench.js';
 import SoundManager from '../audio/SoundManager.js';
 import Drone from '../entities/Drone.js';
 import MineManager from '../entities/MineManager.js';
@@ -82,6 +85,10 @@ export class GameManager {
 
     // Bomber runs
     this._bomberTimer         = 0;
+
+    // Deterministic world features already materialised (base + trench cells)
+    this._spawnedBases        = new Set();
+    this._spawnedTrenches     = new Set();
 
     // Map type for current round + player-selected preference ('random' = pick randomly)
     this.mapType              = 'hills';
@@ -618,12 +625,12 @@ export class GameManager {
     // Entities caught in the blast — 3D distance, so a bomber at altitude
     // is safe from its own ground bombs but not from a drone strike
     for (const e of this.entityManager.alive()) {
-      if (e.kind === 'powerup') continue;
+      if (e.kind === 'powerup' || e.kind === 'trench') continue;
       const hc = e.getHitCenter ? e.getHitCenter() : e.position;
       const dx = hc.x - pos.x;
       const dy = (hc.y ?? 0) - pos.y;
       const dz = hc.z - pos.z;
-      if (dx * dx + dy * dy + dz * dz <= r2) e.takeHit(3);
+      if (dx * dx + dy * dy + dz * dz <= r2) e.takeHit(3, true);
     }
 
     // Enemy tanks in the blast take top-zone damage too (friendly fire)
@@ -868,6 +875,8 @@ export class GameManager {
     this._overdriveTimer  = 0;
     this._apTimer         = 0;
     this._bomberTimer     = 0; // re-rolls a fresh random interval on first tick
+    this._spawnedBases    = new Set();
+    this._spawnedTrenches = new Set();
     if (this.playerTank) {
       this.playerTank.reloadFactor = 1;
       this.playerTank.speedFactor  = 1;
@@ -1092,6 +1101,109 @@ export class GameManager {
     }
   }
 
+  /** Deterministic [0,1) hash for a world cell + world seed + salt. */
+  _cellRng(cellX, cellZ, salt) {
+    let h = (this.terrain.seed | 0) ^ salt;
+    h = Math.imul(h ^ cellX, 0x9e3779b1);
+    h = Math.imul(h ^ cellZ, 0x85ebca6b);
+    h ^= h >>> 15;
+    return seededRandom(h | 0);
+  }
+
+  /**
+   * Spawns an enemy base if this chunk contains the (deterministic) centre
+   * of a base cell that hosts one. Uncommon but reproducible landmarks.
+   */
+  _maybeSpawnBase(cx, cz, inThisChunk) {
+    const cellX = Math.floor(cx / BASE.cellSize);
+    const cellZ = Math.floor(cz / BASE.cellSize);
+    const key = cellX + ',' + cellZ;
+    if (this._spawnedBases.has(key)) return;
+
+    const rng = this._cellRng(cellX, cellZ, 0x0badf00d);
+    if (rng() >= BASE.chance) { this._spawnedBases.add(key); return; }
+
+    // Jittered centre within the cell
+    const bx = (cellX + 0.25 + rng() * 0.5) * BASE.cellSize;
+    const bz = (cellZ + 0.25 + rng() * 0.5) * BASE.cellSize;
+    if (Math.hypot(bx, bz) < BASE.minOriginDist) { this._spawnedBases.add(key); return; }
+    if (!inThisChunk(bx, bz)) return; // wait until the centre chunk loads
+
+    this._spawnedBases.add(key);
+    const gy = this.terrain.getHeightAt(bx, bz);
+    if (gy < -1.0) return; // don't build in a ravine
+
+    // HQ building at the centre
+    this.entityManager.add(new DestructibleBuilding(this.scene, {
+      position: { x: bx, z: bz }, terrain: this.terrain,
+    }));
+
+    // Ring of turret emplacements
+    for (let i = 0; i < BASE.turretRing; i++) {
+      const a = (i / BASE.turretRing) * Math.PI * 2 + rng() * 0.3;
+      const x = bx + Math.cos(a) * BASE.radius;
+      const z = bz + Math.sin(a) * BASE.radius;
+      if (this.terrain.getHeightAt(x, z) < -1.0) continue;
+      this.entityManager.add(new TurretEmplacement(this.scene, {
+        position: { x, z }, terrain: this.terrain,
+      }));
+    }
+
+    // Defending infantry inside the compound
+    for (let i = 0; i < BASE.infantry; i++) {
+      const a = rng() * Math.PI * 2, r = rng() * BASE.radius * 0.7;
+      this.entityManager.add(new InfantryUnit(this.scene, {
+        position:          { x: bx + Math.cos(a) * r, z: bz + Math.sin(a) * r },
+        terrain:           this.terrain,
+        movementValidator: this.movementValidator,
+        mineManager:       this.mineManager,
+      }));
+    }
+
+    // Minefield ringing the approach
+    this.mineManager.addField(this.terrain, bx, bz, BASE.mineRing, BASE.mineRadius,
+      (cellX * 73856093) ^ (cellZ * 19349663));
+
+    this._pushMessage('ENEMY BASE DETECTED IN SECTOR');
+  }
+
+  /** Spawns a garrisoned trench if this chunk holds a trench cell's centre. */
+  _maybeSpawnTrench(cx, cz, inThisChunk) {
+    const cellX = Math.floor(cx / TRENCH.cellSize);
+    const cellZ = Math.floor(cz / TRENCH.cellSize);
+    const key = cellX + ',' + cellZ;
+    if (this._spawnedTrenches.has(key)) return;
+
+    const rng = this._cellRng(cellX, cellZ, 0x7f4a7c15);
+    if (rng() >= TRENCH.chance) { this._spawnedTrenches.add(key); return; }
+
+    const tx = (cellX + 0.3 + rng() * 0.4) * TRENCH.cellSize;
+    const tz = (cellZ + 0.3 + rng() * 0.4) * TRENCH.cellSize;
+    if (Math.hypot(tx, tz) < TRENCH.minOriginDist) { this._spawnedTrenches.add(key); return; }
+    if (!inThisChunk(tx, tz)) return;
+
+    this._spawnedTrenches.add(key);
+    if (this.terrain.getHeightAt(tx, tz) < -0.8) return; // not in water
+
+    const heading = rng() * Math.PI * 2;
+    const trench = new Trench(this.scene, {
+      position: { x: tx, z: tz }, heading, terrain: this.terrain,
+    });
+    this.entityManager.add(trench);
+
+    // Garrison the trench with dug-in infantry (cover + hold position)
+    for (const p of trench.garrisonPositions(TRENCH.garrison)) {
+      this.entityManager.add(new InfantryUnit(this.scene, {
+        position:          p,
+        terrain:           this.terrain,
+        movementValidator: this.movementValidator,
+        mineManager:       this.mineManager,
+        coverChance:       TRENCH.coverChance,
+        stationary:        true,
+      }));
+    }
+  }
+
   /**
    * Registers chunk-load spawning: ambient infantry whose density scales
    * with distance from the origin, plus occasional power-up pickups.
@@ -1101,6 +1213,16 @@ export class GameManager {
     this.terrain.onChunkLoaded((chunk) => {
       const cx = chunk.cx * CHUNK.size + CHUNK.size / 2;
       const cz = chunk.cz * CHUNK.size + CHUNK.size / 2;
+      const cOx = chunk.cx * CHUNK.size, cOz = chunk.cz * CHUNK.size;
+      const inThisChunk = (x, z) =>
+        x >= cOx && x < cOx + CHUNK.size && z >= cOz && z < cOz + CHUNK.size;
+
+      // Enemy base sites — uncommon fortified compounds with an HQ, a ring of
+      // turret emplacements, defenders, and a minefield around the approach.
+      this._maybeSpawnBase(cx, cz, inThisChunk);
+
+      // Trenches — narrow infantry cover the tank can drive over
+      this._maybeSpawnTrench(cx, cz, inThisChunk);
 
       // Ambient power-up
       if (Math.random() < POWERUP.chunkChance) {

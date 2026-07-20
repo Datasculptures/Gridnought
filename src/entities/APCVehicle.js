@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { APC } from '../utils/constants.js';
+import { APC, MACHINEGUN } from '../utils/constants.js';
 import InfantryUnit from './InfantryUnit.js';
 import DestructionEffect from '../rendering/DestructionEffect.js';
+import { WeaponType } from '../weapons/WeaponTypes.js';
 
 /**
  * Armoured Personnel Carrier — wanders the battlefield and periodically
@@ -40,6 +41,10 @@ export default class APCVehicle {
     // Infantry deploy
     this._deployTimer     = APC.infantrySpawnInterval;
     this._infantrySpawned = 0;
+
+    // Weapon (same MG capability as infantry)
+    this._fireCooldown = APC.fireCooldown;
+    this._turretYaw    = 0; // relative to hull heading
 
     this.destructionEffect = null;
 
@@ -88,18 +93,27 @@ export default class APCVehicle {
     this._box(trW, trH, trD,  trX, trY, 0, S, W);
     this._box(trW, trH, trD, -trX, trY, 0, S, W);
 
-    // Flat turret box
-    const turY = h.height + t.height / 2;
-    this._box(t.width, t.height, t.depth,  0, turY, 0, S, W);
-
-    // Hatch ring on turret top (square outline)
-    this._box(0.7, 0.12, 0.7,  0, turY + t.height / 2 + 0.06, 0, S, W);
-
-    // MG stub — thin box extending from turret front
-    this._box(0.12, 0.12, 0.55,  0, turY, t.depth / 2 + 0.28, S, W);
-
     // Rear ramp hint — slightly raised plate at back
     this._box(h.width * 0.85, h.height * 0.6, 0.18,  0, h.height * 0.3, -h.depth / 2, S, W);
+
+    // ---- Rotating turret assembly (tracks + fires at the player) ----
+    const turY = h.height + t.height / 2;
+    this.turretPivot = new THREE.Group();
+    this.turretPivot.position.set(0, turY, 0);
+    this._boxIn(this.turretPivot, t.width, t.height, t.depth,  0, 0, 0, S, W);          // turret box
+    this._boxIn(this.turretPivot, 0.7, 0.12, 0.7,  0, t.height / 2 + 0.06, 0, S, W);    // hatch ring
+    this._boxIn(this.turretPivot, 0.12, 0.12, 0.9,  0, 0, t.depth / 2 + 0.45, S, W);    // MG barrel
+    this.group.add(this.turretPivot);
+  }
+
+  /** Like _box but adds to an arbitrary parent (turret pivot). */
+  _boxIn(parent, w, h, d, x, y, z, S, W) {
+    const geo = new THREE.BoxGeometry(w, h, d);
+    const ms  = new THREE.Mesh(geo, S);
+    const mw  = new THREE.Mesh(geo, W);
+    ms.position.set(x, y, z);
+    mw.position.set(x, y, z);
+    parent.add(ms, mw);
   }
 
   _box(w, h, d, x, y, z, S, W) {
@@ -148,13 +162,17 @@ export default class APCVehicle {
   // Update
   // ---------------------------------------------------------------------------
 
-  update(delta, _ctx) {
+  update(delta, ctx) {
     if (!this.isAlive) {
       if (this.destructionEffect && !this.destructionEffect.isComplete) {
         this.destructionEffect.update(delta);
       }
       return;
     }
+
+    // Turret + MG toward the player (infantry-grade weapon)
+    const player = ctx?.playerTank;
+    if (player?.isAlive) this._updateWeapon(delta, player, ctx.projectileManager);
 
     // Steer toward waypoint
     const dx   = this._waypoint.x - this.position.x;
@@ -217,6 +235,43 @@ export default class APCVehicle {
     this.heading  = ((this.heading % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
   }
 
+  /** Slews the turret toward the player and fires MG bursts in range. */
+  _updateWeapon(delta, player, projectileManager) {
+    const dx   = player.position.x - this.position.x;
+    const dz   = player.position.z - this.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    // Track: world yaw to the player minus hull heading
+    const worldYaw = Math.atan2(dx, dz);
+    const targetRel = ((worldYaw - this.heading + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+    let d = ((targetRel - this._turretYaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+    this._turretYaw += Math.sign(d) * Math.min(Math.abs(d), APC.turretTraverse * delta);
+    if (this.turretPivot) this.turretPivot.rotation.y = this._turretYaw;
+
+    // Fire when in range and roughly aimed
+    this._fireCooldown -= delta;
+    if (dist <= APC.fireRange && Math.abs(d) < 0.2 && this._fireCooldown <= 0 && projectileManager) {
+      this._fireCooldown = APC.fireCooldown;
+      const horiz = dist || 1;
+      const dirX  = dx / horiz, dirZ = dz / horiz;
+      const origin = new THREE.Vector3(
+        this.position.x + dirX * 1.2,
+        this.position.y + APC.hull.height + APC.turret.height,
+        this.position.z + dirZ * 1.2,
+      );
+      projectileManager.spawn({
+        origin,
+        velocity:      new THREE.Vector3(dirX * MACHINEGUN.muzzleVelocity, 0, dirZ * MACHINEGUN.muzzleVelocity),
+        owner:         this,
+        color:         MACHINEGUN.enemyColor,
+        radius:        MACHINEGUN.radius,
+        gravity:       MACHINEGUN.gravity,
+        maxFlightTime: MACHINEGUN.maxFlightTime,
+        weaponType:    WeaponType.INFANTRY_MG,
+      });
+    }
+  }
+
   _spawnInfantry() {
     if (!this._onSpawnInfantry) return;
     const angle  = this.heading + Math.PI + (Math.random() - 0.5) * 1.2;
@@ -264,6 +319,8 @@ export default class APCVehicle {
     this._reverseTimer    = 0;
     this._deployTimer     = APC.infantrySpawnInterval;
     this._infantrySpawned = 0;
+    this._fireCooldown    = APC.fireCooldown;
+    this._turretYaw       = 0;
     this._lastPos.copy(this.position);
     this._pickWaypoint();
     if (this.group) this.group.visible = true;

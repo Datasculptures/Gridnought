@@ -1,29 +1,13 @@
 import { useEffect, useRef } from 'react';
-import { MINIMAP, INFANTRY } from '../utils/constants.js';
+import { MINIMAP } from '../utils/constants.js';
 import GameState from '../game/GameState.js';
 
 // World units shown across the minimap (player-centred window)
-const VIEW_SIZE = 220;
+const VIEW_SIZE = MINIMAP.viewSize;
 // Terrain bake resolution (upscaled with pixelated rendering — on brand)
 const BAKE_RES = 80;
 // Seconds between terrain re-bakes as the player moves
 const BAKE_INTERVAL = 0.5;
-
-/**
- * Returns true if either the player tank or the drone has an unobstructed
- * line of sight to (tx, ty, tz) through obstacles.
- */
-function hasLOS(om, player, drone, tx, ty, tz) {
-  if (!om) return true; // no obstacle manager → always visible
-  const py = player ? (player.position.y + 0.85) : 0;
-  if (player && om.hasLineOfSight(
-    player.position.x, py, player.position.z, tx, ty, tz,
-  )) return true;
-  if (drone && drone.isAlive && om.hasLineOfSight(
-    drone.position.x, drone.position.y, drone.position.z, tx, ty, tz,
-  )) return true;
-  return false;
-}
 
 /**
  * Canvas minimap for the infinite world — a moving window centred on the
@@ -144,15 +128,42 @@ export default function Minimap({
         }
       }
 
-      const gm    = gameManagerRef?.current;
-      const drone = gm?.drone ?? null;
+      const gm     = gameManagerRef?.current;
+      const drones = (gm?.drones ?? []).filter(d => d.isAlive);
 
-      // Enemy tanks (threat pool) — only if player or drone has LOS
+      // Sensor coverage: an enemy shows only when within detectRadius of the
+      // player tank OR any live drone.
+      const detR2 = MINIMAP.detectRadius * MINIMAP.detectRadius;
+      const detected = (x, z) => {
+        if (player && ((x - cx) ** 2 + (z - cz) ** 2) <= detR2) return true;
+        for (const d of drones) {
+          const dp = d.position;
+          if ((x - dp.x) ** 2 + (z - dp.z) ** 2 <= detR2) return true;
+        }
+        return false;
+      };
+
+      // Detection rings — player (centred) + each drone
+      const ringPx = (MINIMAP.detectRadius / VIEW_SIZE) * size;
+      ctx.strokeStyle = 'rgba(68,136,255,0.35)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, ringPx, 0, Math.PI * 2);
+      ctx.stroke();
+      for (const d of drones) {
+        if (!inView(d.position.x, d.position.z)) continue;
+        const dx = w2m(d.position.x, cx), dz = w2m(d.position.z, cz);
+        ctx.strokeStyle = 'rgba(0,204,255,0.30)';
+        ctx.beginPath();
+        ctx.arc(dx, dz, ringPx, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // Enemy tanks (threat pool) — only inside sensor coverage
       for (const u of (gm?.enemyUnits ?? [])) {
         const enemy = u.tank;
         if (!enemy.isAlive || !inView(enemy.position.x, enemy.position.z)) continue;
-        const ety = enemy.position.y + 0.85;
-        if (!hasLOS(om, player, drone, enemy.position.x, ety, enemy.position.z)) continue;
+        if (!detected(enemy.position.x, enemy.position.z)) continue;
         const px  = w2m(enemy.position.x, cx);
         const py  = w2m(enemy.position.z, cz);
         const fwd = enemy.getForwardDirection();
@@ -175,13 +186,10 @@ export default function Minimap({
       if (gm?.entityManager) {
         for (const e of gm.entityManager.entities) {
           if (!e.isAlive) continue;
+          if (e.kind === 'powerup') continue;          // pickups don't show
           if (!inView(e.position.x, e.position.z)) continue;
-
-          // Infantry only show when the player or drone has line of sight
-          if (e.kind === 'infantry') {
-            const iy = e.position.y + INFANTRY.hitYOffset;
-            if (!hasLOS(om, player, drone, e.position.x, iy, e.position.z)) continue;
-          }
+          // Enemy contacts require sensor coverage; neutral trucks always show
+          if (e.faction === 'enemy' && !detected(e.position.x, e.position.z)) continue;
 
           const px = w2m(e.position.x, cx);
           const py = w2m(e.position.z, cz);
@@ -229,6 +237,19 @@ export default function Minimap({
               ctx.strokeRect(px - s, py - s, s * 2, s * 2);
               break;
             }
+            case 'building': {
+              // Enemy HQ: filled red square with a cross
+              const s = MINIMAP.tankRadius * 1.4;
+              ctx.fillStyle = '#ff3333';
+              ctx.fillRect(px - s, py - s, s * 2, s * 2);
+              ctx.strokeStyle = '#000';
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(px - s, py); ctx.lineTo(px + s, py);
+              ctx.moveTo(px, py - s); ctx.lineTo(px, py + s);
+              ctx.stroke();
+              break;
+            }
             case 'jammer':
               ctx.strokeStyle = '#ff2222';
               ctx.lineWidth   = 1.5;
@@ -247,6 +268,19 @@ export default function Minimap({
               ctx.fill();
           }
         }
+      }
+
+      // Friendly drones — cyan diamonds
+      for (const d of drones) {
+        if (!inView(d.position.x, d.position.z)) continue;
+        const px = w2m(d.position.x, cx), py = w2m(d.position.z, cz);
+        const s = MINIMAP.tankRadius * 0.8;
+        ctx.fillStyle = MINIMAP.droneColor;
+        ctx.beginPath();
+        ctx.moveTo(px, py - s); ctx.lineTo(px + s, py);
+        ctx.lineTo(px, py + s); ctx.lineTo(px - s, py);
+        ctx.closePath();
+        ctx.fill();
       }
 
       // Player tank — always centred

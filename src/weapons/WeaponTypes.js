@@ -43,18 +43,18 @@ export const WeaponType = Object.freeze({
     damage:      2,
     penetrating: true,
   }),
-  // Emplacement gun — turret defenses; long reach, tank-grade shells
+  // Emplacement gun — turret defenses; matches the tank main gun's reach
   EMPLACEMENT_CANNON: Object.freeze({
     id:          'EMPLACEMENT_CANNON',
     label:       'Emplacement Cannon',
-    range:       85,
+    range:       95,
     damage:      2,
     penetrating: true,
   }),
   HEAVY_CANNON: Object.freeze({
     id:          'HEAVY_CANNON',
     label:       'Heavy Cannon',
-    range:       null,   // no range cap — killed by terrain hit, map edge, or maxFlightTime
+    range:       95,    // long but finite — player, enemy tanks, and turrets all share it
     damage:      2,
     penetrating: true,
   }),

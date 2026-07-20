@@ -41,6 +41,11 @@ export default class InfantryUnit {
     // Fire state
     this._fireCooldown = INFANTRY.fireCooldown; // don't fire on first frame
 
+    // Cover — trench garrison absorbs a fraction of ranged hits and holds
+    // its dug-in position rather than chasing.
+    this.coverChance = config.coverChance || 0;
+    this._stationary = config.stationary || false;
+
     // AI state
     this._aiState       = 'patrol';
     this._patrolTimer   = 0;
@@ -129,8 +134,13 @@ export default class InfantryUnit {
       this._aiState = 'patrol';
     }
 
+    // --- Dug-in trench garrison: hold position, face and fire only ---
+    if (this._stationary) {
+      this._turnToward(Math.atan2(dx, dz), delta);
+      this.speed = 0;
+
     // --- Patrol: random walk ---
-    if (this._aiState === 'patrol') {
+    } else if (this._aiState === 'patrol') {
       this._patrolTimer -= delta;
       if (this._patrolTimer <= 0) {
         this._patrolTarget = Math.random() * Math.PI * 2;
@@ -222,9 +232,17 @@ export default class InfantryUnit {
     );
   }
 
-  /** One hit kills infantry (no armour — any damage is fatal). */
-  takeHit(damage = 1) {
+  /**
+   * One hit kills infantry (no armour). Trench garrison have a chance to
+   * shrug off a ranged hit thanks to the parapet.
+   * @param {number} damage
+   * @param {boolean} ranged - true for projectile/blast hits (cover applies)
+   */
+  takeHit(damage = 1, ranged = false) {
     if (!this.isAlive) return false;
+    if (ranged && this.coverChance > 0 && Math.random() < this.coverChance) {
+      return false; // absorbed by cover
+    }
     this.isAlive     = false;
     this.isDestroyed = true;
     if (this.group) this.group.visible = false;

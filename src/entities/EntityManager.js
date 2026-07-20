@@ -81,7 +81,7 @@ export default class EntityManager {
           proj.kill();
           // Non-penetrating rounds bounce off armoured entities (turrets)
           if (proj.weaponType?.penetrating === false && e.isArmoured) break;
-          const destroyed = e.takeHit((proj.weaponType?.damage ?? 1) * (proj.damageMultiplier ?? 1));
+          const destroyed = e.takeHit((proj.weaponType?.damage ?? 1) * (proj.damageMultiplier ?? 1), true);
           if (destroyed && typeof this._onKill === 'function') {
             try {
               this._onKill(e, proj);

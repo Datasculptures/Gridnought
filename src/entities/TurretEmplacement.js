@@ -34,6 +34,10 @@ export default class TurretEmplacement {
     this._turretYaw   = this.heading; // world yaw of the turret
     this._cooldown    = EMPLACEMENT.cooldown * (0.5 + Math.random() * 0.5);
 
+    // Concealment — dormant and sunk until the player enters activateRange
+    this._active   = false;
+    this._riseY    = 0;  // 0 = fully sunk, 1 = fully raised
+
     this.destructionEffect = null;
 
     this.position.y = this.terrain.getHeightAt(this.position.x, this.position.z);
@@ -48,7 +52,8 @@ export default class TurretEmplacement {
       color: 0x000000,
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
     });
-    const W = new THREE.MeshBasicMaterial({ color: COLORS.enemyTank, wireframe: true });
+    // Starts camouflaged dark green; turns hostile red on activation
+    const W = new THREE.MeshBasicMaterial({ color: EMPLACEMENT.dormantColor, wireframe: true });
     this._solidMat = S;
     this._wireMat  = W;
     this._geos = [];
@@ -68,9 +73,10 @@ export default class TurretEmplacement {
     part(new THREE.BoxGeometry(2.6, 0.7, 2.6), this.group, 0, 0.35, 0);
     part(new THREE.CylinderGeometry(1.15, 1.45, 0.5, 8), this.group, 0, 0.90, 0);
 
-    // Rotating turret assembly
+    // Rotating turret assembly — starts sunk into the pedestal (concealed)
     this.turretPivot = new THREE.Group();
-    this.turretPivot.position.y = 1.15;
+    this._turretBaseY = 1.15;
+    this.turretPivot.position.y = this._turretBaseY - EMPLACEMENT.riseHeight;
     part(new THREE.BoxGeometry(1.6, 0.7, 1.8), this.turretPivot, 0, 0.35, 0);          // turret
     part(new THREE.BoxGeometry(1.15, 0.48, 0.55), this.turretPivot, 0, 0.35, -1.12);   // bustle
     part(new THREE.CylinderGeometry(0.27, 0.27, 0.22, 6), this.turretPivot, -0.42, 0.80, -0.25); // cupola
@@ -109,7 +115,22 @@ export default class TurretEmplacement {
     const dx   = player.position.x - this.position.x;
     const dz   = player.position.z - this.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
-    if (dist > EMPLACEMENT.range * 1.3) return; // dormant far outside range
+
+    // Activation — stay concealed until the player wanders into range
+    if (!this._active) {
+      if (dist <= EMPLACEMENT.activateRange) {
+        this._active = true;
+        this._wireMat.color.setHex(COLORS.enemyTank); // go hostile red
+      } else {
+        return; // dormant: no rise, no track, no fire
+      }
+    }
+
+    // Rise animation (concealed → deployed)
+    if (this._riseY < 1) {
+      this._riseY = Math.min(1, this._riseY + EMPLACEMENT.riseSpeed * delta / EMPLACEMENT.riseHeight);
+      this.turretPivot.position.y = this._turretBaseY - (1 - this._riseY) * EMPLACEMENT.riseHeight;
+    }
 
     // Slew the turret toward the player
     const targetYaw = Math.atan2(dx, dz);
@@ -117,9 +138,10 @@ export default class TurretEmplacement {
     this._turretYaw += Math.sign(diff) * Math.min(Math.abs(diff), EMPLACEMENT.traverse * delta);
     this.turretPivot.rotation.y = this._turretYaw - this.heading;
 
-    // Fire when aimed and in range
+    // Fire only once fully deployed, aimed, and in range
     this._cooldown -= delta;
-    if (dist <= EMPLACEMENT.range && Math.abs(diff) < EMPLACEMENT.aimTolerance && this._cooldown <= 0) {
+    if (this._riseY >= 1 && dist <= EMPLACEMENT.range
+        && Math.abs(diff) < EMPLACEMENT.aimTolerance && this._cooldown <= 0) {
       this._cooldown = EMPLACEMENT.cooldown;
       this._fire(player, ctx.projectileManager);
     }

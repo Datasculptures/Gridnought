@@ -75,6 +75,30 @@ export default class MineManager {
     }
   }
 
+  /**
+   * Scatters `count` mines within `radius` of (cx, cz) — used to ring enemy
+   * base sites. Deterministic from `seed`.
+   */
+  addField(terrain, cx, cz, count, radius, seed) {
+    const rng = seededRandom((seed | 0) ^ 0x9e3779b1);
+    for (let i = 0; i < count; i++) {
+      const ang = rng() * Math.PI * 2;
+      const r   = (0.35 + rng() * 0.65) * radius;
+      const mx  = cx + Math.cos(ang) * r;
+      const mz  = cz + Math.sin(ang) * r;
+      const y   = terrain.getHeightAt(mx, mz);
+      if (y < -1.2) continue; // no mines in water
+      const pos = new THREE.Vector3(mx, y, mz);
+      const solid = new THREE.Mesh(this._geo, this._solidMat);
+      solid.position.copy(pos);
+      const wire = new THREE.Mesh(this._geo, this._wireMat);
+      wire.position.copy(pos);
+      this.scene.add(solid);
+      this.scene.add(wire);
+      this.mines.push({ position: pos.clone(), solid, wire, triggered: false });
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Queries
   // ---------------------------------------------------------------------------

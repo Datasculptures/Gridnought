@@ -175,13 +175,21 @@ export default class Tank {
     };
 
 
-    // ---- Hull greebles: skirts, fenders, engine deck, exhausts, sensors ----
-    const skirtGeo = new THREE.BoxGeometry(0.12, 0.36, 3.3);
-    detail(skirtGeo, this.group,  1.26, 0.40, 0);
-    detail(skirtGeo, this.group, -1.26, 0.40, 0);
-    const fenderGeo = new THREE.BoxGeometry(0.32, 0.08, 3.4);
-    detail(fenderGeo, this.group,  1.12, 1.05, 0);
-    detail(fenderGeo, this.group, -1.12, 1.05, 0);
+    // ---- Hull greebles: track skirts, fenders, engine deck, exhausts, sensors ----
+    // Skirts run wider than the hull and deep — a clear rectangular tread
+    // footprint so hull/travel direction reads at a glance.
+    const skirtGeo = new THREE.BoxGeometry(0.30, 0.52, 3.5);
+    detail(skirtGeo, this.group,  1.42, 0.30, 0);
+    detail(skirtGeo, this.group, -1.42, 0.30, 0);
+    // Road-wheel bogies suggested by evenly spaced blocks along each track
+    const bogieGeo = new THREE.BoxGeometry(0.34, 0.22, 0.34);
+    for (const bz of [-1.2, -0.4, 0.4, 1.2]) {
+      detail(bogieGeo, this.group,  1.42, 0.14, bz);
+      detail(bogieGeo, this.group, -1.42, 0.14, bz);
+    }
+    const fenderGeo = new THREE.BoxGeometry(0.40, 0.08, 3.6);
+    detail(fenderGeo, this.group,  1.30, 1.02, 0);
+    detail(fenderGeo, this.group, -1.30, 1.02, 0);
     detail(new THREE.BoxGeometry(1.8, 0.18, 0.95), this.group, 0, 1.08, -1.20); // engine deck
     const exhaustGeo = new THREE.BoxGeometry(0.18, 0.15, 0.5);
     detail(exhaustGeo, this.group,  0.72, 1.14, -1.55);

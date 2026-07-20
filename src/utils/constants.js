@@ -139,7 +139,7 @@ export const TANK = {
     depth: 3.6,
   },
   turret: {
-    width: 1.6,
+    width: 1.35,             // narrower than the hull so the tracks read clearly
     height: 0.7,
     depth: 1.8,
     yOffset: 1.35,            // hull.height + turret.height/2 — sits ON the hull
@@ -308,6 +308,10 @@ export const APC = {
   minSpawnDist:         24,
   infantrySpawnInterval: 60, // seconds between infantry drops
   maxInfantrySpawns:    3,   // stops spawning after this many
+  // Weapon — same MG capability as infantry
+  fireRange:            30,  // stop-and-fire distance to the player
+  fireCooldown:         2.0, // seconds between bursts
+  turretTraverse:       1.6, // rad/s turret slew toward the player
   // Geometry
   hull:    { width: 2.6, height: 1.4, depth: 4.2 },
   turret:  { width: 1.6, height: 0.6, depth: 1.6 },
@@ -359,9 +363,14 @@ export const MINIMAP = {
   projectileRadius: 2,  // px
   borderColor: '#00ff00',
   playerColor: '#4488ff',
+  droneColor: '#00ccff',
   enemyColor: '#ff4444',
   projectileColor: '#ffff00',
   enemyProjectileColor: '#ff6600',
+  viewSize: 220,        // world units across the minimap window
+  // Enemies only appear within this radius of the player OR any drone
+  // (~22% of the view window). Rings drawn at each sensor.
+  detectRadius: 48,     // world units
 };
 
 export const AIM = {
@@ -507,15 +516,48 @@ export const EMPLACEMENT = {
   hp: 4,
   hitRadius: 2.2,
   score: 6,
-  range: 75,            // engagement range
+  range: 90,            // engagement range (matches the cannon reach)
+  activateRange: 105,   // player within this → turret rises and goes hot
   traverse: 1.1,        // turret slew rad/s
   aimTolerance: 0.09,
   cooldown: 3.2,        // seconds between shots
   muzzleVelocity: 30,
-  maxLive: 10,          // world population cap
-  chunkChance: 0.09,    // ambient spawn chance per distant chunk
+  riseSpeed: 2.2,       // units/sec the turret rises when activating
+  riseHeight: 1.4,      // how far the turret is sunk while dormant
+  dormantColor: 0x225533, // camouflaged dark green before activation
+  maxLive: 12,          // world population cap
+  chunkChance: 0.05,    // ambient lone-strongpoint chance per distant chunk
   minOriginDist: 250,
-  fortressChance: 0.6,  // chance per fortress-biome chunk
+};
+
+// Enemy base sites — uncommon fortified compounds, findable in the wild
+export const BASE = {
+  cellSize: 900,        // one candidate site per 900u world cell
+  chance: 0.16,         // fraction of cells that actually hold a base
+  minOriginDist: 500,   // none this close to spawn
+  radius: 34,           // compound wall radius
+  turretRing: 5,        // turret emplacements around the perimeter
+  infantry: 4,          // defenders
+  mineRing: 14,         // mines scattered around the approach
+  mineRadius: 46,       // mines spread within this radius of the centre
+  // Red HQ building — destructible, worth a haul
+  hqHp: 10,
+  hqScore: 40,
+  hqHitRadius: 6.5,
+  hqColor: 0xff3333,
+  hq: { width: 11, height: 7, depth: 11 },
+};
+
+// Trenches — narrow infantry cover a tank can drive straight over
+export const TRENCH = {
+  cellSize: 260,        // candidate trench per world cell
+  chance: 0.35,
+  minOriginDist: 170,
+  length: 16,           // trench run length
+  halfWidth: 1.1,       // narrow — tank tracks straddle it
+  depth: 1.2,           // visual trench depth
+  garrison: 3,          // infantry spawned in the trench
+  coverChance: 0.6,     // chance an incoming hit is absorbed by the parapet
 };
 
 // Gunsight target lock
