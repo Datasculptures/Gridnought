@@ -41,7 +41,7 @@ export default class InfantryUnit {
     // Fire state
     this._fireCooldown = INFANTRY.fireCooldown; // don't fire on first frame
 
-    // Cover — trench garrison absorbs a fraction of ranged hits and holds
+    // Cover — crater garrison absorbs a fraction of ranged hits and holds
     // its dug-in position rather than chasing.
     this.coverChance = config.coverChance || 0;
     this._stationary = config.stationary || false;
@@ -134,7 +134,7 @@ export default class InfantryUnit {
       this._aiState = 'patrol';
     }
 
-    // --- Dug-in trench garrison: hold position, face and fire only ---
+    // --- Dug-in crater garrison: hold position, face and fire only ---
     if (this._stationary) {
       this._turnToward(Math.atan2(dx, dz), delta);
       this.speed = 0;
@@ -233,8 +233,8 @@ export default class InfantryUnit {
   }
 
   /**
-   * One hit kills infantry (no armour). Trench garrison have a chance to
-   * shrug off a ranged hit thanks to the parapet.
+   * One hit kills infantry (no armour). Dug-in garrison have a chance to
+   * shrug off a ranged hit thanks to the crater lip.
    * @param {number} damage
    * @param {boolean} ranged - true for projectile/blast hits (cover applies)
    */

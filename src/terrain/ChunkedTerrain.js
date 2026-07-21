@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CELL_SIZE, CHUNK, COLORS, WATER } from '../utils/constants.js';
+import { CELL_SIZE, CHUNK, COLORS, WATER, HAZARD } from '../utils/constants.js';
 import Materials from '../rendering/Materials.js';
 import WorldGenerator from './WorldGenerator.js';
 
@@ -154,6 +154,7 @@ export default class ChunkedTerrain {
     // Sample vertex heights from the world function; note whether a river
     // channel actually runs deep here (water is river-only, not valleys)
     const heights = new Float32Array(verts * verts);
+    const hazard  = new Uint8Array(verts * verts); // 1 = inside a river channel
     let hasDeepRiver = false;
     for (let vz = 0; vz < verts; vz++) {
       for (let vx = 0; vx < verts; vx++) {
@@ -161,9 +162,11 @@ export default class ChunkedTerrain {
         const wz = origin.z + vz * CELL_SIZE;
         const h  = this.worldGen.heightAt(wx, wz);
         heights[vz * verts + vx] = h;
-        if (!hasDeepRiver && h < WATER.level
-            && this.worldGen.riverInfoAt(wx, wz).inChannel) {
-          hasDeepRiver = true;
+        // Flag ravine ground so its grid lines can be drawn in hazard blue —
+        // narrow channels are otherwise nearly invisible at a shallow angle.
+        if (h < WATER.rimLevel && this.worldGen.riverInfoAt(wx, wz).inChannel) {
+          hazard[vz * verts + vx] = 1;
+          if (h < WATER.level) hasDeepRiver = true;
         }
       }
     }
@@ -181,26 +184,39 @@ export default class ChunkedTerrain {
     const solidMesh = new THREE.Mesh(geo, Materials.terrainSolid);
     solidMesh.position.set(origin.x + CHUNK.size / 2, 0, origin.z + CHUNK.size / 2);
 
-    // Grid wireframe (horizontal + vertical edges only, no diagonals)
-    const segCount = 2 * verts * N;
-    const buf = new Float32Array(segCount * 2 * 3);
-    let idx = 0;
+    // Grid wireframe (horizontal + vertical edges only, no diagonals).
+    // Segments touching a river channel go into a separate bright-blue mesh
+    // so ravines are unmistakable from any angle or distance.
+    const land = [];
+    const river = [];
+    const seg = (ax, az, bx, bz) => {
+      const ai = az * verts + ax, bi = bz * verts + bx;
+      const target = (hazard[ai] || hazard[bi]) ? river : land;
+      target.push(
+        origin.x + ax * CELL_SIZE, heights[ai], origin.z + az * CELL_SIZE,
+        origin.x + bx * CELL_SIZE, heights[bi], origin.z + bz * CELL_SIZE,
+      );
+    };
     for (let vz = 0; vz < verts; vz++) {
-      for (let vx = 0; vx < N; vx++) {
-        buf[idx++] = origin.x + vx * CELL_SIZE;       buf[idx++] = heights[vz * verts + vx];       buf[idx++] = origin.z + vz * CELL_SIZE;
-        buf[idx++] = origin.x + (vx + 1) * CELL_SIZE; buf[idx++] = heights[vz * verts + vx + 1];   buf[idx++] = origin.z + vz * CELL_SIZE;
-      }
+      for (let vx = 0; vx < N; vx++) seg(vx, vz, vx + 1, vz);
     }
     for (let vx = 0; vx < verts; vx++) {
-      for (let vz = 0; vz < N; vz++) {
-        buf[idx++] = origin.x + vx * CELL_SIZE; buf[idx++] = heights[vz * verts + vx];         buf[idx++] = origin.z + vz * CELL_SIZE;
-        buf[idx++] = origin.x + vx * CELL_SIZE; buf[idx++] = heights[(vz + 1) * verts + vx];   buf[idx++] = origin.z + (vz + 1) * CELL_SIZE;
-      }
+      for (let vz = 0; vz < N; vz++) seg(vx, vz, vx, vz + 1);
     }
+
     const lineGeo = new THREE.BufferGeometry();
-    lineGeo.setAttribute('position', new THREE.BufferAttribute(buf, 3));
+    lineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(land), 3));
     const lineMat  = new THREE.LineBasicMaterial({ color: COLORS.terrain, transparent: true, opacity: 0.35 });
     const gridMesh = new THREE.LineSegments(lineGeo, lineMat);
+
+    let riverMesh = null, riverMat = null;
+    if (river.length > 0) {
+      const rGeo = new THREE.BufferGeometry();
+      rGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(river), 3));
+      riverMat  = new THREE.LineBasicMaterial({ color: WATER.rimColor, transparent: true, opacity: 0.95 });
+      riverMesh = new THREE.LineSegments(rGeo, riverMat);
+      this.scene.add(riverMesh);
+    }
 
     this.scene.add(solidMesh);
     this.scene.add(gridMesh);
@@ -212,7 +228,7 @@ export default class ChunkedTerrain {
       water = this._buildWater(origin);
     }
 
-    return { cx, cz, heights, solidMesh, gridMesh, lineMat, water };
+    return { cx, cz, heights, solidMesh, gridMesh, lineMat, riverMesh, riverMat, water };
   }
 
   /** Translucent blue fill + coarse grid at the water level. */
@@ -262,6 +278,11 @@ export default class ChunkedTerrain {
     this.scene.remove(chunk.gridMesh);
     chunk.gridMesh.geometry.dispose();
     chunk.lineMat.dispose();
+    if (chunk.riverMesh) {
+      this.scene.remove(chunk.riverMesh);
+      chunk.riverMesh.geometry.dispose();
+      chunk.riverMat.dispose();
+    }
     if (chunk.water) {
       this.scene.remove(chunk.water.fill);
       this.scene.remove(chunk.water.grid);
@@ -364,6 +385,16 @@ export default class ChunkedTerrain {
   /** Dominant biome type at a world position (for spawning / obstacles / HUD). */
   biomeAt(worldX, worldZ) {
     return this.worldGen.biomeAt(worldX, worldZ);
+  }
+
+  /**
+   * True where AI-controlled movers must not go: deep ground inside a river
+   * channel. Craters and ordinary low terrain are explicitly NOT hazards —
+   * only the water-cut ravines are.
+   */
+  isHazardAt(worldX, worldZ) {
+    if (this.getHeightAt(worldX, worldZ) >= HAZARD.maxAIDepth) return false;
+    return this.worldGen.riverInfoAt(worldX, worldZ).inChannel;
   }
 
   getLoadedChunks() {

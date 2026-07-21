@@ -50,12 +50,19 @@ export default function Minimap({
           const wx  = cx + (px / BAKE_RES - 0.5) * VIEW_SIZE;
           const wz  = cz + (py / BAKE_RES - 0.5) * VIEW_SIZE;
           const h   = terrain.getHeightAt(wx, wz);
-          // Below-zero (rivers) shade toward blue-black; hills toward green
-          const t   = Math.min(1, Math.max(0, (h + 2) / 16));
           const idx = (py * BAKE_RES + px) * 4;
-          imgData.data[idx]     = 0;
-          imgData.data[idx + 1] = Math.round(30 + t * 130);
-          imgData.data[idx + 2] = h < -1.5 ? 60 : 0;
+          if (h < -1.0) {
+            // Ravines render as vivid blue channels — the clearest hazard cue
+            const d = Math.min(1, (-1.0 - h) / 5);
+            imgData.data[idx]     = 0;
+            imgData.data[idx + 1] = Math.round(90 - d * 60);
+            imgData.data[idx + 2] = Math.round(150 + d * 105);
+          } else {
+            const t = Math.min(1, Math.max(0, (h + 2) / 16));
+            imgData.data[idx]     = 0;
+            imgData.data[idx + 1] = Math.round(30 + t * 130);
+            imgData.data[idx + 2] = 0;
+          }
           imgData.data[idx + 3] = 255;
         }
       }

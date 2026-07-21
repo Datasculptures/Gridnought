@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TANK, TURRET, PROJECTILE, MACHINEGUN, COLORS } from '../utils/constants.js';
+import { TANK, TURRET, PROJECTILE, COLORS } from '../utils/constants.js';
 import DestructionEffect from '../rendering/DestructionEffect.js';
 import { WeaponType } from '../weapons/WeaponTypes.js';
 
@@ -67,11 +67,6 @@ export default class Tank {
     this.soundManager = null;  // injected by GameManager
 
     // --- Machine gun burst state ---
-    this._mgBurstLeft  = 0;
-    this._mgBurstTimer = 0;
-    this._mgCooldown   = 0;
-    this._xWasDown     = false;
-
     // Destruction effect — created by destroy(), animated until complete
     this.destructionEffect = null;
 
@@ -181,15 +176,39 @@ export default class Tank {
     const skirtGeo = new THREE.BoxGeometry(0.30, 0.52, 3.5);
     detail(skirtGeo, this.group,  1.42, 0.30, 0);
     detail(skirtGeo, this.group, -1.42, 0.30, 0);
-    // Road-wheel bogies suggested by evenly spaced blocks along each track
-    const bogieGeo = new THREE.BoxGeometry(0.34, 0.22, 0.34);
-    for (const bz of [-1.2, -0.4, 0.4, 1.2]) {
-      detail(bogieGeo, this.group,  1.42, 0.14, bz);
-      detail(bogieGeo, this.group, -1.42, 0.14, bz);
+    // Track links — rungs crossing each skirt, so the treads read as treads
+    // and their run direction is obvious at a glance.
+    const linkGeo = new THREE.BoxGeometry(0.40, 0.10, 0.16);
+    for (let i = -3; i <= 3; i++) {
+      const lz = i * 0.5;
+      detail(linkGeo, this.group,  1.42, 0.56, lz);
+      detail(linkGeo, this.group, -1.42, 0.56, lz);
+      detail(linkGeo, this.group,  1.42, 0.04, lz);
+      detail(linkGeo, this.group, -1.42, 0.04, lz);
     }
+    // Drive sprocket at the FRONT, idler at the rear — deliberately
+    // asymmetric so front and back can't be confused.
+    const sprocketGeo = new THREE.BoxGeometry(0.42, 0.62, 0.62);
+    detail(sprocketGeo, this.group,  1.42, 0.31, 1.62);
+    detail(sprocketGeo, this.group, -1.42, 0.31, 1.62);
+    const idlerGeo = new THREE.BoxGeometry(0.38, 0.40, 0.40);
+    detail(idlerGeo, this.group,  1.42, 0.20, -1.66);
+    detail(idlerGeo, this.group, -1.42, 0.20, -1.66);
+
     const fenderGeo = new THREE.BoxGeometry(0.40, 0.08, 3.6);
     detail(fenderGeo, this.group,  1.30, 1.02, 0);
     detail(fenderGeo, this.group, -1.30, 1.02, 0);
+
+    // Forward chevron on the front deck — the driver's "this way is forward"
+    // marker, readable from the cupola no matter where the turret points.
+    const chevGeo = new THREE.BoxGeometry(0.10, 0.10, 1.05);
+    detail(chevGeo, this.group,  0.36, 1.06, 1.30, 0, 0.62);
+    detail(chevGeo, this.group, -0.36, 1.06, 1.30, 0, -0.62);
+    // Nose prow + headlight blocks
+    detail(new THREE.BoxGeometry(1.5, 0.22, 0.22), this.group, 0, 1.02, 1.86);
+    const lampGeo = new THREE.BoxGeometry(0.26, 0.22, 0.18);
+    detail(lampGeo, this.group,  0.80, 0.86, 1.85);
+    detail(lampGeo, this.group, -0.80, 0.86, 1.85);
     detail(new THREE.BoxGeometry(1.8, 0.18, 0.95), this.group, 0, 1.08, -1.20); // engine deck
     const exhaustGeo = new THREE.BoxGeometry(0.18, 0.15, 0.5);
     detail(exhaustGeo, this.group,  0.72, 1.14, -1.55);
@@ -321,39 +340,6 @@ export default class Tank {
   }
 
   // ---------------------------------------------------------------------------
-  // Machine gun
-  // ---------------------------------------------------------------------------
-
-  /** Fires one MG round from the barrel tip in the current turret direction (flat, no gravity). */
-  _fireMG() {
-    if (!this.projectileManager) return;
-    this.group.updateWorldMatrix(true, true);
-    const origin     = this.getBarrelTip();
-    const worldAngle = this.heading + this.turretAngle;
-    const velocity   = new THREE.Vector3(
-      Math.sin(worldAngle) * MACHINEGUN.muzzleVelocity,
-      0,
-      Math.cos(worldAngle) * MACHINEGUN.muzzleVelocity,
-    );
-    this.projectileManager.spawn({
-      origin,
-      velocity,
-      owner:         this,
-      color:         MACHINEGUN.playerColor,
-      radius:        MACHINEGUN.radius,
-      gravity:       MACHINEGUN.gravity,
-      maxFlightTime: MACHINEGUN.maxFlightTime,
-      canHitTanks:   false,
-      weaponType:    WeaponType.LIGHT_MG,
-      damageMultiplier: this.damageFactor,
-    });
-    this.soundManager?.mg(this.position);
-    if (this.effectsManager) {
-      this.effectsManager.spawnMuzzleFlash(origin.clone());
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // Update
   // ---------------------------------------------------------------------------
 
@@ -444,16 +430,18 @@ export default class Tank {
     const newZ  = fromZ + Math.cos(this.heading) * effectiveSpeed * delta;
 
     // 7. Movement validation — wall-slide on rejection (vehicle blocking skips slide)
-    // AI tanks refuse ravine terrain; the player may risk it
+    // AI tanks refuse ravine terrain; the player may risk it. A tank actively
+    // climbing out of a hazard gets the steep-slope exemption.
     const avoidDeep = !this.inputManager;
+    const escaping  = !!this.aiController?.commands?.escaping;
     const vBlocked = this.movementValidator.isVehicleBlocked(newX, newZ, this);
-    const check    = this.movementValidator.canMoveTo(fromX, fromZ, newX, newZ, avoidDeep);
+    const check    = this.movementValidator.canMoveTo(fromX, fromZ, newX, newZ, avoidDeep, escaping);
     if (check.allowed && !vBlocked) {
       this.position.x = newX;
       this.position.z = newZ;
     } else if (!vBlocked) {
-      const checkX = this.movementValidator.canMoveTo(fromX, fromZ, newX, fromZ, avoidDeep);
-      const checkZ = this.movementValidator.canMoveTo(fromX, fromZ, fromX, newZ, avoidDeep);
+      const checkX = this.movementValidator.canMoveTo(fromX, fromZ, newX, fromZ, avoidDeep, escaping);
+      const checkZ = this.movementValidator.canMoveTo(fromX, fromZ, fromX, newZ, avoidDeep, escaping);
       if (checkX.allowed) this.position.x = newX;
       if (checkZ.allowed) this.position.z = newZ;
       // Do NOT zero speed — keep it so the player can reverse out immediately
@@ -481,28 +469,8 @@ export default class Tank {
       }
     }
 
-    // 11b. Machine gun burst (player only — X key).
-    // Stands down while X is bound to a drone strike on a locked target.
-    if (this.inputManager) {
-      const xDown = this.inputManager.isKeyDown('KeyX') && !(this.mgSuppressed?.());
-      if (xDown && !this._xWasDown && this._mgCooldown <= 0 && this._mgBurstLeft === 0) {
-        this._mgBurstLeft  = MACHINEGUN.burstCount;
-        this._mgBurstTimer = 0;
-      }
-      this._xWasDown = xDown;
-    }
-
-    if (this._mgBurstLeft > 0) {
-      this._mgBurstTimer -= delta;
-      if (this._mgBurstTimer <= 0) {
-        this._fireMG();
-        this._mgBurstLeft--;
-        this._mgBurstTimer = (this._mgBurstLeft > 0) ? MACHINEGUN.burstInterval : 0;
-        if (this._mgBurstLeft === 0) this._mgCooldown = MACHINEGUN.cooldown;
-      }
-    } else {
-      this._mgCooldown = Math.max(0, this._mgCooldown - delta);
-    }
+    // (The player machine gun was removed — X is the drone strike now.
+    //  Enemy infantry and APCs keep their own MG, fired from their classes.)
 
     // 12. Turret aiming
     let aimPoint = null;
@@ -667,12 +635,6 @@ export default class Tank {
     // Restore full armor and reset face colours to black
     this.armor = freshArmor(this._armorMaxHP);
     this._updateHullColors();
-
-    // Reset MG burst state
-    this._mgBurstLeft  = 0;
-    this._mgBurstTimer = 0;
-    this._mgCooldown   = 0;
-    this._xWasDown     = false;
 
     this._applyTransform();
   }

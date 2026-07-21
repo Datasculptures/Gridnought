@@ -52,13 +52,18 @@ export default class DestructibleBuilding {
       }
     };
 
-    // Main block + stepped upper storey + roof mast
+    // Low bunker: squat casemate + sloped earth berm skirt + roof slab
     part(new THREE.BoxGeometry(d.width, d.height, d.depth), 0, d.height / 2, 0);
-    part(new THREE.BoxGeometry(d.width * 0.55, d.height * 0.5, d.depth * 0.55), 0, d.height + d.height * 0.25, 0);
-    part(new THREE.BoxGeometry(0.2, 3.0, 0.2), 0, d.height * 1.5 + 1.5, 0);
-    // A big red cross emblem hint on the front face (two thin bars)
-    part(new THREE.BoxGeometry(d.width * 0.5, 0.3, 0.2), 0, d.height * 0.6, d.depth / 2 + 0.05);
-    part(new THREE.BoxGeometry(0.3, d.height * 0.5, 0.2), 0, d.height * 0.6, d.depth / 2 + 0.05);
+    part(new THREE.BoxGeometry(d.width * 1.25, d.height * 0.42, d.depth * 1.25), 0, d.height * 0.21, 0); // berm
+    part(new THREE.BoxGeometry(d.width * 0.92, 0.3, d.depth * 0.92), 0, d.height + 0.15, 0);             // roof slab
+    // Firing embrasures — dark slits on all four faces
+    const sl = 0.32;
+    part(new THREE.BoxGeometry(d.width * 0.55, sl, 0.18), 0, d.height * 0.68,  d.depth / 2 + 0.06);
+    part(new THREE.BoxGeometry(d.width * 0.55, sl, 0.18), 0, d.height * 0.68, -d.depth / 2 - 0.06);
+    part(new THREE.BoxGeometry(0.18, sl, d.depth * 0.55),  d.width / 2 + 0.06, d.height * 0.68, 0);
+    part(new THREE.BoxGeometry(0.18, sl, d.depth * 0.55), -d.width / 2 - 0.06, d.height * 0.68, 0);
+    // Stub antenna on the roof so it reads as a command post
+    part(new THREE.BoxGeometry(0.14, 1.6, 0.14), d.width * 0.3, d.height + 1.0, -d.depth * 0.3);
 
     this.group.position.set(this.position.x, this.position.y, this.position.z);
   }

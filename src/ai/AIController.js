@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { AI, CELL_SIZE, COLLISION, PROJECTILE, TANK } from '../utils/constants.js';
+import { AI, CELL_SIZE, COLLISION, PROJECTILE, TANK, HAZARD } from '../utils/constants.js';
 import GameState from '../game/GameState.js';
 
 const VALID_STATES = new Set(['patrol', 'detect', 'pursue', 'aim', 'fire']);
@@ -98,6 +98,10 @@ export default class AIController {
       this._runStuckRecovery(delta);
       return;
     }
+
+    // Ravine escape overrides everything — a tank that ends up in deep water
+    // climbs the bank before it resumes hunting.
+    if (this._runRavineEscape(delta)) return;
 
     // Validate state
     if (!VALID_STATES.has(this.state)) {
@@ -420,6 +424,37 @@ export default class AIController {
     error = ((error + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
     if (Math.abs(error) < AI.turnThreshold) return 0;
     return error > 0 ? 1 : -1;
+  }
+
+  /**
+   * If the tank is sitting in deep ground (ravine/riverbed), drive up the
+   * steepest available slope until it's clear. Returns true while escaping,
+   * which suspends the normal state machine.
+   * @returns {boolean}
+   */
+  _runRavineEscape(_delta) {
+    const p = this.tank.position;
+    if (!this.terrain.isHazardAt(p.x, p.z)) {
+      this.commands.escaping = false;
+      return false;
+    }
+    const here = this.terrain.getHeightAt(p.x, p.z);
+
+    // Sample a ring around the tank and head for the highest ground
+    let bestAngle = null, bestH = here;
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const h = this.terrain.getHeightAt(p.x + Math.sin(a) * 9, p.z + Math.cos(a) * 9);
+      if (h > bestH) { bestH = h; bestAngle = a; }
+    }
+    if (bestAngle === null) { this.commands.escaping = false; return false; }
+
+    let diff = ((bestAngle - this.tank.heading + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+    this.commands.turnInput = Math.abs(diff) > AI.turnThreshold ? Math.sign(diff) : 0;
+    this.commands.moveInput = Math.abs(diff) < Math.PI / 2 ? 1 : 0; // drive once roughly facing uphill
+    this.commands.fire      = false;
+    this.commands.escaping  = true; // lets the validator relax the climb limit
+    return true;
   }
 
   // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER, COLLISION, TARGETING, EMPLACEMENT, BASE, TRENCH } from '../utils/constants.js';
+import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER, COLLISION, TARGETING, EMPLACEMENT, BASE, CRATER } from '../utils/constants.js';
 import GameState from './GameState.js';
 import InputManager from '../input/InputManager.js';
 import ChunkedTerrain from '../terrain/ChunkedTerrain.js';
@@ -21,7 +21,6 @@ import PowerUp from '../entities/PowerUp.js';
 import Bomber from '../entities/Bomber.js';
 import TurretEmplacement from '../entities/TurretEmplacement.js';
 import DestructibleBuilding from '../entities/DestructibleBuilding.js';
-import Trench from '../entities/Trench.js';
 import SoundManager from '../audio/SoundManager.js';
 import Drone from '../entities/Drone.js';
 import MineManager from '../entities/MineManager.js';
@@ -86,9 +85,9 @@ export class GameManager {
     // Bomber runs
     this._bomberTimer         = 0;
 
-    // Deterministic world features already materialised (base + trench cells)
+    // Deterministic world features already materialised (base + crater nests)
     this._spawnedBases        = new Set();
-    this._spawnedTrenches     = new Set();
+    this._spawnedNests        = new Set();
 
     // Map type for current round + player-selected preference ('random' = pick randomly)
     this.mapType              = 'hills';
@@ -211,9 +210,7 @@ export class GameManager {
     // Drone fleet — the base spotter; power-ups add more
     this.drones = [new Drone(this.scene)];
 
-    // Machine gun stands down while a drone strike is available on the
-    // locked target — X launches the strike instead
-    this.playerTank.mgSuppressed = () => this._canDroneStrike();
+    // X launches a drone strike on the locked target
     this.inputManager.onKeyPress('KeyX', () => this._tryDroneStrike());
 
     // Mine manager — generates 0-2 clusters of small red mines each round
@@ -306,6 +303,7 @@ export class GameManager {
       this._checkDroneHits();
 
       // Endless-mode systems
+      this._checkRavineWarning(delta);
       this._checkPowerUpPickup();
       this._updatePowerUpTimers(delta);
       this._updateRespawns(delta);
@@ -625,7 +623,7 @@ export class GameManager {
     // Entities caught in the blast — 3D distance, so a bomber at altitude
     // is safe from its own ground bombs but not from a drone strike
     for (const e of this.entityManager.alive()) {
-      if (e.kind === 'powerup' || e.kind === 'trench') continue;
+      if (e.kind === 'powerup') continue;
       const hc = e.getHitCenter ? e.getHitCenter() : e.position;
       const dx = hc.x - pos.x;
       const dy = (hc.y ?? 0) - pos.y;
@@ -876,7 +874,7 @@ export class GameManager {
     this._apTimer         = 0;
     this._bomberTimer     = 0; // re-rolls a fresh random interval on first tick
     this._spawnedBases    = new Set();
-    this._spawnedTrenches = new Set();
+    this._spawnedNests    = new Set();
     if (this.playerTank) {
       this.playerTank.reloadFactor = 1;
       this.playerTank.speedFactor  = 1;
@@ -991,6 +989,24 @@ export class GameManager {
         }));
       } else if (entry.kind === 'jammer') {
         this.entityManager.add(new JammerTruck(this.scene, { position: pos, ...base }));
+      }
+    }
+  }
+
+  /**
+   * Warns when the player is driving toward a ravine — narrow channels can
+   * be hard to read at speed, especially at a shallow approach angle.
+   */
+  _checkRavineWarning(delta) {
+    this._ravineWarnTimer = Math.max(0, (this._ravineWarnTimer ?? 0) - delta);
+    const t = this.playerTank;
+    if (!t.isAlive || t.speed <= 0.5 || this._ravineWarnTimer > 0) return;
+    const sin = Math.sin(t.heading), cos = Math.cos(t.heading);
+    for (const d of [10, 16, 22]) {
+      if (this.terrain.isHazardAt(t.position.x + sin * d, t.position.z + cos * d)) {
+        this._pushMessage('⚠ RAVINE AHEAD');
+        this._ravineWarnTimer = 6;
+        return;
       }
     }
   }
@@ -1167,40 +1183,53 @@ export class GameManager {
     this._pushMessage('ENEMY BASE DETECTED IN SECTOR');
   }
 
-  /** Spawns a garrisoned trench if this chunk holds a trench cell's centre. */
-  _maybeSpawnTrench(cx, cz, inThisChunk) {
-    const cellX = Math.floor(cx / TRENCH.cellSize);
-    const cellZ = Math.floor(cz / TRENCH.cellSize);
-    const key = cellX + ',' + cellZ;
-    if (this._spawnedTrenches.has(key)) return;
+  /**
+   * Digs infantry into a large crater inside this chunk. The crater itself
+   * is part of the terrain (see WorldGenerator.craterOffsetAt) — this only
+   * garrisons it: dug-in troops that hold the rim and shrug off some fire.
+   */
+  _maybeGarrisonCrater(chunk, inThisChunk) {
+    const wg = this.terrain.worldGen;
+    // Crater cells overlapping this chunk
+    const c0x = Math.floor((chunk.cx * CHUNK.size) / CRATER.cellSize);
+    const c0z = Math.floor((chunk.cz * CHUNK.size) / CRATER.cellSize);
+    const c1x = Math.floor(((chunk.cx + 1) * CHUNK.size) / CRATER.cellSize);
+    const c1z = Math.floor(((chunk.cz + 1) * CHUNK.size) / CRATER.cellSize);
 
-    const rng = this._cellRng(cellX, cellZ, 0x7f4a7c15);
-    if (rng() >= TRENCH.chance) { this._spawnedTrenches.add(key); return; }
+    for (let cx = c0x; cx <= c1x; cx++) {
+      for (let cz = c0z; cz <= c1z; cz++) {
+        const key = cx + ',' + cz;
+        if (this._spawnedNests.has(key)) continue;
+        const crater = wg.getCraterCell(cx, cz);
+        if (!crater.exists || crater.radius < CRATER.garrisonMinRadius) continue;
+        if (!inThisChunk(crater.centerX, crater.centerZ)) continue;
 
-    const tx = (cellX + 0.3 + rng() * 0.4) * TRENCH.cellSize;
-    const tz = (cellZ + 0.3 + rng() * 0.4) * TRENCH.cellSize;
-    if (Math.hypot(tx, tz) < TRENCH.minOriginDist) { this._spawnedTrenches.add(key); return; }
-    if (!inThisChunk(tx, tz)) return;
+        this._spawnedNests.add(key);
+        if (Math.hypot(crater.centerX, crater.centerZ) < CRATER.garrisonMinOriginDist) continue;
 
-    this._spawnedTrenches.add(key);
-    if (this.terrain.getHeightAt(tx, tz) < -0.8) return; // not in water
+        const rng = this._cellRng(cx, cz, 0x7f4a7c15);
+        if (rng() >= CRATER.garrisonChance) continue;
+        // Skip craters that are flooded (a crater floor is legitimately low,
+        // so test for river hazard rather than a raw height threshold)
+        if (this.terrain.isHazardAt(crater.centerX, crater.centerZ)) continue;
 
-    const heading = rng() * Math.PI * 2;
-    const trench = new Trench(this.scene, {
-      position: { x: tx, z: tz }, heading, terrain: this.terrain,
-    });
-    this.entityManager.add(trench);
-
-    // Garrison the trench with dug-in infantry (cover + hold position)
-    for (const p of trench.garrisonPositions(TRENCH.garrison)) {
-      this.entityManager.add(new InfantryUnit(this.scene, {
-        position:          p,
-        terrain:           this.terrain,
-        movementValidator: this.movementValidator,
-        mineManager:       this.mineManager,
-        coverChance:       TRENCH.coverChance,
-        stationary:        true,
-      }));
+        // Ring the troops around the bowl so they fire over the lip
+        for (let i = 0; i < CRATER.garrison; i++) {
+          const a = (i / CRATER.garrison) * Math.PI * 2 + rng() * 0.8;
+          const r = crater.radius * 0.55;
+          this.entityManager.add(new InfantryUnit(this.scene, {
+            position: {
+              x: crater.centerX + Math.sin(a) * r,
+              z: crater.centerZ + Math.cos(a) * r,
+            },
+            terrain:           this.terrain,
+            movementValidator: this.movementValidator,
+            mineManager:       this.mineManager,
+            coverChance:       CRATER.coverChance,
+            stationary:        true,
+          }));
+        }
+      }
     }
   }
 
@@ -1221,8 +1250,8 @@ export class GameManager {
       // turret emplacements, defenders, and a minefield around the approach.
       this._maybeSpawnBase(cx, cz, inThisChunk);
 
-      // Trenches — narrow infantry cover the tank can drive over
-      this._maybeSpawnTrench(cx, cz, inThisChunk);
+      // Crater nests — infantry dug into the bigger shell holes
+      this._maybeGarrisonCrater(chunk, inThisChunk);
 
       // Ambient power-up
       if (Math.random() < POWERUP.chunkChance) {

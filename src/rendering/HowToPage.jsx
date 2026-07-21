@@ -194,25 +194,32 @@ function buildHQ() {
   const W = new THREE.MeshBasicMaterial({ color: 0xff3333, wireframe: true });
   const g = new THREE.Group();
   const geos = [];
-  geos.push(box(g, S, W, 11, 7, 11, 0, 3.5, 0));       // main block
-  geos.push(box(g, S, W, 6, 3.5, 6, 0, 8.75, 0));      // upper storey
-  geos.push(box(g, S, W, 0.2, 3, 0.2, 0, 12, 0));      // mast
-  geos.push(box(g, S, W, 5.5, 0.3, 0.2, 0, 4.2, 5.55)); // cross bar
-  geos.push(box(g, S, W, 0.3, 3.5, 0.2, 0, 4.2, 5.55)); // cross post
+  geos.push(box(g, S, W, 7.5, 2.6, 7.5, 0, 1.3, 0));       // casemate
+  geos.push(box(g, S, W, 9.4, 1.1, 9.4, 0, 0.55, 0));      // earth berm
+  geos.push(box(g, S, W, 6.9, 0.3, 6.9, 0, 2.75, 0));      // roof slab
+  geos.push(box(g, S, W, 4.1, 0.32, 0.18, 0, 1.77, 3.81)); // embrasure
+  geos.push(box(g, S, W, 0.14, 1.6, 0.14, 2.25, 3.6, -2.25)); // antenna
   return { group: g, mats: [S, W], geos };
 }
 
-function buildTrench() {
-  const S = solidMat();
-  const W = new THREE.MeshBasicMaterial({ color: 0x668855, wireframe: true });
+function buildCrater() {
+  // Shallow bowl: concentric wireframe rings stepping down to the centre
+  const W = new THREE.MeshBasicMaterial({ color: 0x00aa00, wireframe: true });
   const g = new THREE.Group();
   const geos = [];
-  geos.push(box(g, S, W, 2.2, 0.1, 16, 0, -1.2, 0));      // floor
-  geos.push(box(g, S, W, 0.12, 1.2, 16,  1.1, -0.6, 0));  // walls
-  geos.push(box(g, S, W, 0.12, 1.2, 16, -1.1, -0.6, 0));
-  geos.push(box(g, S, W, 0.5, 0.35, 16,  1.4, 0.15, 0));  // parapet
-  geos.push(box(g, S, W, 0.5, 0.35, 16, -1.4, 0.15, 0));
-  return { group: g, mats: [S, W], geos };
+  const R = 7, depth = 1.8, rings = 4;
+  for (let i = 0; i <= rings; i++) {
+    const u = i / rings;
+    const r = R * (1 - u * 0.92);
+    const y = -depth * (1 - (1 - u) * (1 - u));
+    const geo = new THREE.TorusGeometry(Math.max(0.4, r), 0.09, 4, 16);
+    geos.push(geo);
+    const m = new THREE.Mesh(geo, W);
+    m.rotation.x = Math.PI / 2;
+    m.position.y = y;
+    g.add(m);
+  }
+  return { group: g, mats: [W], geos };
 }
 
 function buildMine() {
@@ -322,7 +329,7 @@ export default function HowToPage({ visible, onBack }) {
     place('MINEFIELD — KEEP CLEAR', buildMine(), 20, -6, 0, 1.8);
     place('TURRET EMPLACEMENT · 6 PTS', buildTurret(RED), 28, -18, Math.PI);
     place('ENEMY HQ · 10 SHOTS · 40 PTS', buildHQ(), 44, -30, Math.PI, 15);
-    place('TRENCH — INFANTRY COVER', buildTrench(), -34, -6, Math.PI / 2, 2.5);
+    place('CRATER — DRIVABLE COVER', buildCrater(), -34, -6, 0, 2.5);
 
     // Row 3 — air
     place('BOMBER · 20 PTS · SHOOT IT DOWN', buildBomber(RED), -14, 6, Math.PI * 0.5, 10.5, 7);
@@ -492,7 +499,7 @@ export default function HowToPage({ visible, onBack }) {
         <div>A / D — TURN HULL</div>
         <div>MOUSE — AIM TURRET</div>
         <div>CLICK — MAIN GUN</div>
-        <div>X — MACHINE GUN</div>
+        <div>X — DRONE STRIKE (ON TARGET LOCK)</div>
         <div>, / . — BARREL ELEVATION</div>
         <div>P — FIRST / THIRD PERSON</div>
         <div>R — RETASK DRONE</div>

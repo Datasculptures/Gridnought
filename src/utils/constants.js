@@ -66,11 +66,16 @@ export const CITY = {
 export const WATER = {
   enabled: true,
   level: -4.5,                  // world Y — higher water makes ravines read clearly
-  fillColor: 0x1133cc,
-  fillOpacity: 0.28,
-  gridColor: 0x3366ff,
-  gridOpacity: 0.35,
-  gridDivisions: 4,
+  fillColor: 0x1144ee,
+  fillOpacity: 0.5,
+  gridColor: 0x66aaff,
+  gridOpacity: 0.75,
+  gridDivisions: 6,
+  // Terrain grid lines inside a channel below this height are redrawn in
+  // rimColor at near-full opacity — the ravine's own outline, visible from
+  // any angle even when the water plane itself is edge-on or occluded.
+  rimLevel: -1.0,
+  rimColor: 0x33ccff,
 };
 
 // Max delta time — clamp to this to prevent physics explosion on tab resume
@@ -540,24 +545,30 @@ export const BASE = {
   infantry: 4,          // defenders
   mineRing: 14,         // mines scattered around the approach
   mineRadius: 46,       // mines spread within this radius of the centre
-  // Red HQ building — destructible, worth a haul
+  // Red HQ bunker — low, squat, and destructible; worth a haul
   hqHp: 10,
   hqScore: 40,
-  hqHitRadius: 6.5,
+  hqHitRadius: 4.0,
   hqColor: 0xff3333,
-  hq: { width: 11, height: 7, depth: 11 },
+  hq: { width: 7.5, height: 2.6, depth: 7.5 },
 };
 
-// Trenches — narrow infantry cover a tank can drive straight over
-export const TRENCH = {
-  cellSize: 260,        // candidate trench per world cell
-  chance: 0.35,
-  minOriginDist: 170,
-  length: 16,           // trench run length
-  halfWidth: 1.1,       // narrow — tank tracks straddle it
-  depth: 1.2,           // visual trench depth
-  garrison: 3,          // infantry spawned in the trench
-  coverChance: 0.6,     // chance an incoming hit is absorbed by the parapet
+// Craters — shallow circular depressions carved into the terrain itself.
+// Drivable at any angle; infantry sometimes take cover in the larger ones.
+export const CRATER = {
+  cellSize: 80,         // one candidate crater per 80u world cell
+  chance: 0.45,         // fraction of cells that hold one
+  minRadius: 5,
+  maxRadius: 17,
+  minDepth: 0.8,
+  maxDepth: 2.4,
+  rimHeight: 0.35,      // raised lip of ejecta around the bowl
+  // Infantry nests in the bigger craters
+  garrisonMinRadius: 11,
+  garrisonChance: 0.5,
+  garrison: 3,
+  coverChance: 0.5,     // chance an incoming ranged hit is absorbed by the lip
+  garrisonMinOriginDist: 170,
 };
 
 // Gunsight target lock

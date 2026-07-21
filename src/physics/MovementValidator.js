@@ -73,17 +73,29 @@ export default class MovementValidator {
    *   treated as impassable so enemies never drive into the water hazards
    *   (the player remains free to take the risk).
    */
-  canMoveTo(fromX, fromZ, toX, toZ, avoidDeep = false) {
+  canMoveTo(fromX, fromZ, toX, toZ, avoidDeep = false, relaxSlope = false) {
     // The world is infinite — no bounds check.
 
-    // Step 1 — AI ravine avoidance
-    if (avoidDeep && this.terrain.getHeightAt(toX, toZ) < HAZARD.maxAIDepth) {
-      return { allowed: false, reason: 'ravine' };
+    // Step 1 — AI ravine avoidance.
+    // Never *enter* deep ground, but a unit that somehow ends up down there
+    // (spawned, shoved, or terrain regenerated under it) must still be able
+    // to climb out — otherwise every direction is blocked and it's trapped
+    // for good. So while already deep, allow anything that isn't deeper.
+    if (avoidDeep && this.terrain.isHazardAt(toX, toZ)) {
+      const alreadyDeep = this.terrain.isHazardAt(fromX, fromZ);
+      const toH   = this.terrain.getHeightAt(toX, toZ);
+      const fromH = this.terrain.getHeightAt(fromX, fromZ);
+      if (!alreadyDeep || toH < fromH - 0.01) {
+        return { allowed: false, reason: 'ravine' };
+      }
     }
 
-    // Step 2 — Grid passability (cardinal direction)
+    // Step 2 — Grid passability (cardinal direction).
+    // Skipped while a unit is clawing its way out of a hazard: ravine walls
+    // are steeper than the normal climb limit, so without this exemption an
+    // AI that ends up in the water can never get out again.
     const dir = this.getMovementDirection(fromX, fromZ, toX, toZ);
-    if (!this.terrain.isPassable(fromX, fromZ, dir)) {
+    if (!relaxSlope && !this.terrain.isPassable(fromX, fromZ, dir)) {
       return { allowed: false, reason: 'impassable_slope' };
     }
 
@@ -103,7 +115,7 @@ export default class MovementValidator {
     const dx = toX - fromX;
     const dz = toZ - fromZ;
     const horizDist = Math.sqrt(dx * dx + dz * dz);
-    if (horizDist > 0) {
+    if (horizDist > 0 && !relaxSlope) {
       const slopeAngle = Math.atan2(Math.abs(hTo - hFrom), horizDist);
       const slopeAngleDeg = slopeAngle * (180 / Math.PI);
       if (slopeAngleDeg > TANK.maxClimbAngle) {

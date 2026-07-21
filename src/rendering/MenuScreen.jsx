@@ -101,7 +101,7 @@ export default function MenuScreen({ gameState, onResume, onStart, onQuit, onHow
       {/* Controls reference */}
       <div style={{ color: '#006600', fontSize: 10, lineHeight: 1.7, marginTop: 26, letterSpacing: 1, textAlign: 'center' }}>
         <div>W / S — MOVE&nbsp;&nbsp;&nbsp;A / D — TURN&nbsp;&nbsp;&nbsp;MOUSE — AIM&nbsp;&nbsp;&nbsp;CLICK — FIRE</div>
-        <div>X — MACHINE GUN&nbsp;&nbsp;&nbsp;P — TOGGLE VIEW&nbsp;&nbsp;&nbsp;R — RETASK DRONE&nbsp;&nbsp;&nbsp;ESC — PAUSE</div>
+        <div>X — DRONE STRIKE&nbsp;&nbsp;&nbsp;P — TOGGLE VIEW&nbsp;&nbsp;&nbsp;R — RETASK DRONE&nbsp;&nbsp;&nbsp;ESC — PAUSE</div>
       </div>
     </div>
   );

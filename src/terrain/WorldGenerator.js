@@ -1,5 +1,5 @@
 import { createNoise2D, seededRandom } from './noise.js';
-import { BIOME, RIVER, TERRAIN, ROAD } from '../utils/constants.js';
+import { BIOME, RIVER, TERRAIN, ROAD, CRATER } from '../utils/constants.js';
 
 /**
  * Deterministic infinite-world generator.
@@ -25,6 +25,8 @@ export default class WorldGenerator {
 
     // Cached biome cell info: key "cx,cz" → { type, centerX, centerZ, rng }
     this._biomeCells = new Map();
+    // Cached crater cell info: key "cx,cz" → { exists, centerX, centerZ, radius, depth }
+    this._craterCells = new Map();
   }
 
   // ---------------------------------------------------------------------------
@@ -182,6 +184,9 @@ export default class WorldGenerator {
       }
     }
 
+    // Shell craters pockmarking the battlefield
+    h += this.craterOffsetAt(wx, wz);
+
     // River carve — global network through all biomes. Fades out near the
     // world origin so the spawn pocket is never flooded.
     const r = this._riverNoise(wx * RIVER.fieldScale, wz * RIVER.fieldScale);
@@ -207,6 +212,64 @@ export default class WorldGenerator {
     }
 
     return h;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Craters
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Deterministic crater for a crater-grid cell.
+   * @returns {{exists:boolean, centerX:number, centerZ:number, radius:number, depth:number}}
+   */
+  getCraterCell(cx, cz) {
+    const key = cx + ',' + cz;
+    let c = this._craterCells.get(key);
+    if (c) return c;
+
+    const rand = seededRandom(this._cellHash(cx ^ 0x51ed270b, cz ^ 0x2f3b1d47));
+    const exists = rand() < CRATER.chance;
+    const centerX = (cx + 0.2 + rand() * 0.6) * CRATER.cellSize;
+    const centerZ = (cz + 0.2 + rand() * 0.6) * CRATER.cellSize;
+    // Small craters are common, big ones rare (squared roll)
+    const t = rand() * rand();
+    const radius = CRATER.minRadius + t * (CRATER.maxRadius - CRATER.minRadius);
+    const depth  = CRATER.minDepth + t * (CRATER.maxDepth - CRATER.minDepth);
+
+    c = { exists, centerX, centerZ, radius, depth };
+    this._craterCells.set(key, c);
+    if (this._craterCells.size > 4096) this._craterCells.clear();
+    return c;
+  }
+
+  /**
+   * Net height change from craters at a world point: a smooth bowl with a
+   * slightly raised ejecta rim. Shallow enough to drive through from any
+   * angle, so craters are cover and character rather than a trap.
+   */
+  craterOffsetAt(wx, wz) {
+    const ccx = Math.floor(wx / CRATER.cellSize);
+    const ccz = Math.floor(wz / CRATER.cellSize);
+    let off = 0;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const c = this.getCraterCell(ccx + dx, ccz + dz);
+        if (!c.exists) continue;
+        const d = Math.hypot(wx - c.centerX, wz - c.centerZ);
+        const rim = c.radius * 1.18;
+        if (d >= rim) continue;
+        if (d <= c.radius) {
+          // Bowl: deepest at the centre, easing to zero at the lip
+          const u = d / c.radius;
+          off -= c.depth * (1 - u * u) * (1 - u * u);
+        } else {
+          // Raised ejecta ring just outside the bowl
+          const u = (d - c.radius) / (rim - c.radius); // 0..1
+          off += CRATER.rimHeight * Math.sin(Math.PI * (1 - u)) * (c.radius / CRATER.maxRadius);
+        }
+      }
+    }
+    return off;
   }
 
   /**

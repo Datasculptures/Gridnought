@@ -42,7 +42,7 @@ export default function ControlsHelp({ gameState }) {
       <div>A / D — TURN</div>
       <div>MOUSE — AIM</div>
       <div>CLICK — FIRE</div>
-      <div>X — MACHINE GUN</div>
+      <div>X — DRONE STRIKE</div>
       <div>P — FIRST PERSON</div>
     </div>
   );
