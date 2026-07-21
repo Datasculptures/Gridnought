@@ -65,16 +65,17 @@ export const CITY = {
 // Water surface in deep ravines (visual only)
 export const WATER = {
   enabled: true,
-  level: -4.5,                  // world Y — higher water makes ravines read clearly
+  // World Y of the waterline. Channel ground below this floods and is
+  // outlined in rimColor, so "cyan" and "wet" always mean the same thing;
+  // fords sit above it and stay dry, marking the crossings.
+  level: -1.5,
   fillColor: 0x1144ee,
   fillOpacity: 0.5,
   gridColor: 0x66aaff,
   gridOpacity: 0.75,
   gridDivisions: 6,
-  // Terrain grid lines inside a channel below this height are redrawn in
-  // rimColor at near-full opacity — the ravine's own outline, visible from
-  // any angle even when the water plane itself is edge-on or occluded.
-  rimLevel: -1.0,
+  // Submerged channel grid lines are redrawn in rimColor at near-full
+  // opacity — the ravine outlines itself from any angle.
   rimColor: 0x33ccff,
 };
 
@@ -282,8 +283,8 @@ export const OBSTACLES = {
     missile:  { weight: 0, width: 0.8,  height: 7.0,  depth: 0.8  },
     // Valley
     tree:     { weight: 0, width: 2.5,  height: 6.0,  depth: 2.5  },
-    // Anti-tank caltrop
-    bollard:  { weight: 0, width: 3.2,  height: 3.2,  depth: 3.2  },
+    // Anti-tank caltrop — height matches the built geometry (hubY + legLen)
+    bollard:  { weight: 0, width: 3.2,  height: 2.63, depth: 3.2  },
   },
 
   collisionPadding: 0.3,

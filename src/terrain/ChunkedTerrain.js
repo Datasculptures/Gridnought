@@ -164,9 +164,9 @@ export default class ChunkedTerrain {
         heights[vz * verts + vx] = h;
         // Flag ravine ground so its grid lines can be drawn in hazard blue —
         // narrow channels are otherwise nearly invisible at a shallow angle.
-        if (h < WATER.rimLevel && this.worldGen.riverInfoAt(wx, wz).inChannel) {
+        if (h < WATER.level && this.worldGen.riverInfoAt(wx, wz).inChannel) {
           hazard[vz * verts + vx] = 1;
-          if (h < WATER.level) hasDeepRiver = true;
+          hasDeepRiver = true;
         }
       }
     }
@@ -222,41 +222,60 @@ export default class ChunkedTerrain {
     this.scene.add(gridMesh);
     this.solidMeshes.push(solidMesh);
 
-    // Water surface — only in chunks where a river channel runs deep
+    // Water surface — covers exactly the cells the cyan rim outlines, so
+    // every highlighted patch of ground is visibly flooded
     let water = null;
     if (WATER.enabled && hasDeepRiver) {
-      water = this._buildWater(origin);
+      water = this._buildWater(origin, hazard, verts, N);
     }
 
     return { cx, cz, heights, solidMesh, gridMesh, lineMat, riverMesh, riverMat, water };
   }
 
-  /** Translucent blue fill + coarse grid at the water level. */
-  _buildWater(origin) {
-    const fillGeo = new THREE.PlaneGeometry(CHUNK.size, CHUNK.size, 1, 1);
-    fillGeo.rotateX(-Math.PI / 2);
+  /**
+   * Water surface built from the submerged channel cells themselves, so the
+   * flooded area lines up exactly with the cyan rim outline — no cyan ground
+   * without water, and no water spilling across dry land or crater floors.
+   */
+  _buildWater(origin, hazard, verts, N) {
+    const tri = [];   // surface quads
+    const edge = [];  // outline segments along the shore
+    const y = WATER.level;
+
+    for (let vz = 0; vz < N; vz++) {
+      for (let vx = 0; vx < N; vx++) {
+        // Flood a cell when any of its corners is submerged channel ground
+        const c00 = hazard[vz * verts + vx];
+        const c10 = hazard[vz * verts + vx + 1];
+        const c01 = hazard[(vz + 1) * verts + vx];
+        const c11 = hazard[(vz + 1) * verts + vx + 1];
+        if (!(c00 || c10 || c01 || c11)) continue;
+
+        const x0 = origin.x + vx * CELL_SIZE, x1 = x0 + CELL_SIZE;
+        const z0 = origin.z + vz * CELL_SIZE, z1 = z0 + CELL_SIZE;
+        tri.push(
+          x0, y, z0,  x1, y, z0,  x1, y, z1,
+          x0, y, z0,  x1, y, z1,  x0, y, z1,
+        );
+        // Cell border lines give the surface its wireframe read
+        edge.push(x0, y, z0, x1, y, z0,  x0, y, z0, x0, y, z1);
+      }
+    }
+    if (tri.length === 0) return null;
+
+    const fillGeo = new THREE.BufferGeometry();
+    fillGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(tri), 3));
     const fillMat = new THREE.MeshBasicMaterial({
       color: WATER.fillColor,
       transparent: true,
       opacity: WATER.fillOpacity,
       depthWrite: false,
+      side: THREE.DoubleSide,
     });
     const fill = new THREE.Mesh(fillGeo, fillMat);
-    fill.position.set(origin.x + CHUNK.size / 2, WATER.level, origin.z + CHUNK.size / 2);
 
-    // Coarse grid lines on the surface
-    const div  = WATER.gridDivisions;
-    const step = CHUNK.size / div;
-    const buf  = new Float32Array((div + 1) * 2 * 2 * 3);
-    let i = 0;
-    for (let k = 0; k <= div; k++) {
-      buf[i++] = origin.x + k * step; buf[i++] = WATER.level; buf[i++] = origin.z;
-      buf[i++] = origin.x + k * step; buf[i++] = WATER.level; buf[i++] = origin.z + CHUNK.size;
-      buf[i++] = origin.x;              buf[i++] = WATER.level; buf[i++] = origin.z + k * step;
-      buf[i++] = origin.x + CHUNK.size; buf[i++] = WATER.level; buf[i++] = origin.z + k * step;
-    }
     const gridGeo = new THREE.BufferGeometry();
-    gridGeo.setAttribute('position', new THREE.BufferAttribute(buf, 3));
+    gridGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(edge), 3));
     const gridMat = new THREE.LineBasicMaterial({
       color: WATER.gridColor,
       transparent: true,

@@ -1,276 +1,121 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { APP, POWERUP } from '../utils/constants.js';
+import { APP, POWERUP, COLORS, AMMO } from '../utils/constants.js';
+
+import Tank from '../entities/Tank.js';
+import InfantryUnit from '../entities/InfantryUnit.js';
+import TruckVehicle from '../entities/TruckVehicle.js';
+import APCVehicle from '../entities/APCVehicle.js';
+import JammerTruck from '../entities/JammerTruck.js';
+import MinelayerVehicle from '../entities/MinelayerVehicle.js';
+import TurretEmplacement from '../entities/TurretEmplacement.js';
+import DestructibleBuilding from '../entities/DestructibleBuilding.js';
+import Bomber from '../entities/Bomber.js';
+import Transport from '../entities/Transport.js';
+import Drone from '../entities/Drone.js';
+import PowerUp from '../entities/PowerUp.js';
+import MineManager from '../entities/MineManager.js';
 
 /**
- * HOW TO / ABOUT — the Area X museum, rebuilt.
+ * HOW TO / ABOUT — the Area X museum.
  *
- * A walkable exhibition field: every enemy and power-up stands as a static
- * display with its name floating above it. You explore it as a small blue
- * infantry figure (W/S walk, A/D turn). One roped-off side of the field is
- * the PROTOTYPE RANGE — concept units under evaluation. Controls and the
- * version/date are shown as overlays.
+ * Every exhibit is an instance of the *real* game class standing on a flat
+ * stub terrain, so the display can never drift out of sync with what you
+ * meet in the field. Entities are constructed but never updated (except the
+ * spinning power-ups), which keeps them as static display pieces.
  *
- * Rendered as a full-screen overlay with its own scene/renderer — the game
- * canvas underneath stays mounted and untouched.
+ * You explore as a small blue infantry figure: W/S walk, A/D turn.
  */
 
-const GREEN = 0x00ff00;
-const RED   = 0xff4444;
-const BLUE  = 0x4488ff;
-const GREY  = 0x888888;
+const BLUE = 0x4488ff;
+
+/** Flat ground at y=0 — enough terrain API for entity construction. */
+const stubTerrain = {
+  seed: 1,
+  getHeightAt: () => 0,
+  getNormalAt: () => new THREE.Vector3(0, 1, 0),
+  isHazardAt: () => false,
+  isPassable: () => true,
+  solidMeshes: [],
+  worldGen: { riverInfoAt: () => ({ inChannel: false, isFord: false }) },
+};
 
 // ---------------------------------------------------------------------------
-// Model builders (static, simplified)
+// Concept-only models (not in the game yet — hand-built for the prototype range)
 // ---------------------------------------------------------------------------
 
 function solidMat() {
   return new THREE.MeshBasicMaterial({
-    color: 0x000000,
-    polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+    color: 0x000000, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
   });
 }
 
-/** Adds a solid+wire box pair to group g. */
-function box(g, S, W, w, h, d, x, y, z, rx = 0, ry = 0) {
+function conceptBox(g, S, W, w, h, d, x, y, z) {
   const geo = new THREE.BoxGeometry(w, h, d);
   for (const m of [new THREE.Mesh(geo, S), new THREE.Mesh(geo, W)]) {
     m.position.set(x, y, z);
-    m.rotation.x = rx;
-    m.rotation.y = ry;
     g.add(m);
   }
   return geo;
 }
 
-function buildTank(color, opts = {}) {
-  const S = solidMat();
-  const W = new THREE.MeshBasicMaterial({ color, wireframe: true });
-  const g = new THREE.Group();
-  const geos = [];
-  geos.push(box(g, S, W, 2.4, 1.0, 3.6, 0, 0.5, 0));            // hull
-  geos.push(box(g, S, W, 1.35, 0.7, 1.8, 0, 1.35, 0));          // turret (narrow)
-  // Wide track skirts matching the in-game model
-  geos.push(box(g, S, W, 0.30, 0.52, 3.5,  1.42, 0.30, 0));     // skirts
-  geos.push(box(g, S, W, 0.30, 0.52, 3.5, -1.42, 0.30, 0));
-  geos.push(box(g, S, W, 1.8, 0.18, 0.95, 0, 1.08, -1.20));     // engine deck
-  geos.push(box(g, S, W, 1.15, 0.48, 0.55, 0, 1.35, -1.12));    // bustle
-  geos.push(box(g, S, W, 0.82, 0.46, 0.28, 0, 1.58, 0.95));     // mantlet
-  const cupGeo = new THREE.CylinderGeometry(0.27, 0.27, 0.22, 6);
-  for (const m of [new THREE.Mesh(cupGeo, S), new THREE.Mesh(cupGeo, W)]) {
-    m.position.set(-0.42, 1.80, -0.25);
-    g.add(m);
-  }
-  geos.push(cupGeo);
-  if (opts.twinBarrel) {
-    const bg = new THREE.CylinderGeometry(0.09, 0.09, 2.4, 4);
-    for (const bx of [-0.3, 0.3]) {
-      for (const m of [new THREE.Mesh(bg, S), new THREE.Mesh(bg, W)]) {
-        m.rotation.x = Math.PI / 2;
-        m.position.set(bx, 1.5, 2.1);
-        g.add(m);
-      }
-    }
-    geos.push(bg);
-  } else {
-    const bg = new THREE.CylinderGeometry(0.1, 0.1, 3.0, 4);
-    for (const m of [new THREE.Mesh(bg, S), new THREE.Mesh(bg, W)]) {
-      m.rotation.x = Math.PI / 2;
-      m.position.set(0, 1.5, 2.4);
-      g.add(m);
-    }
-    geos.push(bg);
-  }
-  if (opts.scale) g.scale.setScalar(opts.scale);
-  return { group: g, mats: [S, W], geos };
-}
-
-function buildInfantry(color) {
-  const S = solidMat();
-  const W = new THREE.MeshBasicMaterial({ color, wireframe: true });
-  const g = new THREE.Group();
-  const geos = [];
-  geos.push(box(g, S, W, 0.34, 0.42, 0.2, 0, 0.52, 0));               // torso
-  geos.push(box(g, S, W, 0.12, 0.32, 0.16, -0.10, 0.16, 0));          // legs
-  geos.push(box(g, S, W, 0.12, 0.32, 0.16,  0.10, 0.16, 0));
-  const armGeo = new THREE.BoxGeometry(0.10, 0.30, 0.14);
-  // /|\ stance — tops at the shoulders, bottoms flared outward
-  for (const [ax, rz] of [[-0.22, -0.35], [0.22, 0.35]]) {
-    for (const m of [new THREE.Mesh(armGeo, S), new THREE.Mesh(armGeo, W)]) {
-      m.position.set(ax, 0.50, 0);
-      m.rotation.z = rz;
-      g.add(m);
-    }
-  }
-  geos.push(armGeo);
-  const headGeo = new THREE.SphereGeometry(0.15, 6, 5);
-  for (const m of [new THREE.Mesh(headGeo, S), new THREE.Mesh(headGeo, W)]) {
-    m.position.set(0, 0.88, 0);
-    g.add(m);
-  }
-  geos.push(headGeo);
-  return { group: g, mats: [S, W], geos };
-}
-
-function buildTruck(color, opts = {}) {
-  const S = solidMat();
-  const W = new THREE.MeshBasicMaterial({ color, wireframe: true });
-  const g = new THREE.Group();
-  const geos = [];
-  geos.push(box(g, S, W, 2.2, 1.2, 2.2, 0, 0.6, -0.75));  // bed
-  geos.push(box(g, S, W, 2.0, 2.2, 1.6, 0, 1.1, 1.0));    // cab
-  if (opts.dish) {
-    const dishGeo = new THREE.ConeGeometry(0.65, 0.38, 8, 2, true);
-    for (const m of [new THREE.Mesh(dishGeo, S), new THREE.Mesh(dishGeo, W)]) {
-      m.rotation.x = -Math.PI / 2;
-      m.position.set(0, 1.75, -0.75);
-      g.add(m);
-    }
-    geos.push(dishGeo);
-  }
-  return { group: g, mats: [S, W], geos };
-}
-
-function buildAPC(color) {
-  const S = solidMat();
-  const W = new THREE.MeshBasicMaterial({ color, wireframe: true });
-  const g = new THREE.Group();
-  const geos = [];
-  geos.push(box(g, S, W, 2.6, 1.4, 4.2, 0, 0.7, 0));   // hull
-  geos.push(box(g, S, W, 1.6, 0.6, 1.6, 0, 1.7, 0));   // turret
-  geos.push(box(g, S, W, 0.12, 0.12, 0.55, 0, 1.7, 1.05)); // MG stub
-  return { group: g, mats: [S, W], geos };
-}
-
-function buildBomber(color) {
-  const S = solidMat();
-  const W = new THREE.MeshBasicMaterial({ color, wireframe: true });
-  const g = new THREE.Group();
-  const geos = [];
-  geos.push(box(g, S, W, 1.6, 1.0, 7.0, 0, 0, 0));      // fuselage
-  geos.push(box(g, S, W, 14.0, 0.25, 2.6, 0, 0, 0.6));  // wings
-  geos.push(box(g, S, W, 5.0, 0.2, 1.4, 0, 0.1, -3.2)); // tailplane
-  geos.push(box(g, S, W, 0.15, 1.5, 1.3, -2.4, 0.8, -3.2));
-  geos.push(box(g, S, W, 0.15, 1.5, 1.3,  2.4, 0.8, -3.2));
-  return { group: g, mats: [S, W], geos };
-}
-
-function buildDrone(color) {
-  const S = solidMat();
-  const W = new THREE.MeshBasicMaterial({ color, wireframe: true });
-  const g = new THREE.Group();
-  const geos = [];
-  geos.push(box(g, S, W, 0.9, 0.3, 1.8, 0, 0, 0));
-  geos.push(box(g, S, W, 10.0, 0.12, 0.7, 0, 0, 0));
-  geos.push(box(g, S, W, 3.0, 0.10, 0.45, 0, 0, -0.85));
-  return { group: g, mats: [S, W], geos };
-}
-
-function buildTurret(color) {
-  const S = solidMat();
-  const W = new THREE.MeshBasicMaterial({ color, wireframe: true });
-  const g = new THREE.Group();
-  const geos = [];
-  geos.push(box(g, S, W, 2.6, 0.7, 2.6, 0, 0.35, 0));   // pedestal
-  const collarGeo = new THREE.CylinderGeometry(1.15, 1.45, 0.5, 8);
-  for (const m of [new THREE.Mesh(collarGeo, S), new THREE.Mesh(collarGeo, W)]) {
-    m.position.set(0, 0.9, 0);
-    g.add(m);
-  }
-  geos.push(collarGeo);
-  geos.push(box(g, S, W, 1.6, 0.7, 1.8, 0, 1.5, 0));    // turret
-  const barrelGeo = new THREE.CylinderGeometry(0.1, 0.1, 3.0, 4);
-  for (const m of [new THREE.Mesh(barrelGeo, S), new THREE.Mesh(barrelGeo, W)]) {
-    m.rotation.x = Math.PI / 2;
-    m.position.set(0, 1.57, 2.3);
-    g.add(m);
-  }
-  geos.push(barrelGeo);
-  return { group: g, mats: [S, W], geos };
-}
-
-function buildHQ() {
-  const S = solidMat();
-  const W = new THREE.MeshBasicMaterial({ color: 0xff3333, wireframe: true });
-  const g = new THREE.Group();
-  const geos = [];
-  geos.push(box(g, S, W, 7.5, 2.6, 7.5, 0, 1.3, 0));       // casemate
-  geos.push(box(g, S, W, 9.4, 1.1, 9.4, 0, 0.55, 0));      // earth berm
-  geos.push(box(g, S, W, 6.9, 0.3, 6.9, 0, 2.75, 0));      // roof slab
-  geos.push(box(g, S, W, 4.1, 0.32, 0.18, 0, 1.77, 3.81)); // embrasure
-  geos.push(box(g, S, W, 0.14, 1.6, 0.14, 2.25, 3.6, -2.25)); // antenna
-  return { group: g, mats: [S, W], geos };
-}
-
-function buildCrater() {
-  // Shallow bowl: concentric wireframe rings stepping down to the centre
-  const W = new THREE.MeshBasicMaterial({ color: 0x00aa00, wireframe: true });
-  const g = new THREE.Group();
-  const geos = [];
-  const R = 7, depth = 1.8, rings = 4;
-  for (let i = 0; i <= rings; i++) {
-    const u = i / rings;
-    const r = R * (1 - u * 0.92);
-    const y = -depth * (1 - (1 - u) * (1 - u));
-    const geo = new THREE.TorusGeometry(Math.max(0.4, r), 0.09, 4, 16);
-    geos.push(geo);
-    const m = new THREE.Mesh(geo, W);
-    m.rotation.x = Math.PI / 2;
-    m.position.y = y;
-    g.add(m);
-  }
-  return { group: g, mats: [W], geos };
-}
-
-function buildMine() {
-  const S = new THREE.MeshBasicMaterial({ color: 0x440000 });
-  const W = new THREE.MeshBasicMaterial({ color: 0xff2222, wireframe: true });
-  const g = new THREE.Group();
-  const geo = new THREE.SphereGeometry(0.3, 8, 6);
-  for (const [x, z] of [[0, 0], [0.9, 0.3], [-0.6, 0.7], [0.3, -0.8]]) {
-    for (const m of [new THREE.Mesh(geo, S), new THREE.Mesh(geo, W)]) {
-      m.position.set(x, 0.3, z);
-      g.add(m);
-    }
-  }
-  return { group: g, mats: [S, W], geos: [geo] };
-}
-
-function buildPowerUp(colorHex) {
-  const W = new THREE.MeshBasicMaterial({ color: colorHex, wireframe: true });
-  const g = new THREE.Group();
-  const geo = new THREE.OctahedronGeometry(0.9, 0);
-  const m = new THREE.Mesh(geo, W);
-  m.position.y = 1.3;
-  g.add(m);
-  return { group: g, mats: [W], geos: [geo], spin: m };
-}
-
 function buildMortarTeam() {
   const S = solidMat();
-  const W = new THREE.MeshBasicMaterial({ color: RED, wireframe: true });
+  const W = new THREE.MeshBasicMaterial({ color: COLORS.enemyTank, wireframe: true });
   const g = new THREE.Group();
   const geos = [];
-  // Two crouched figures (shorter torsos)
   for (const ox of [-0.7, 0.7]) {
-    geos.push(box(g, S, W, 0.34, 0.34, 0.2, ox, 0.32, -0.4));
-    const headGeo = new THREE.SphereGeometry(0.14, 6, 5);
-    for (const m of [new THREE.Mesh(headGeo, S), new THREE.Mesh(headGeo, W)]) {
+    geos.push(conceptBox(g, S, W, 0.34, 0.34, 0.2, ox, 0.32, -0.4));
+    const head = new THREE.SphereGeometry(0.14, 6, 5);
+    for (const m of [new THREE.Mesh(head, S), new THREE.Mesh(head, W)]) {
       m.position.set(ox, 0.6, -0.4);
       g.add(m);
     }
-    geos.push(headGeo);
+    geos.push(head);
   }
-  // Mortar tube on a base plate
-  geos.push(box(g, S, W, 0.7, 0.08, 0.7, 0, 0.04, 0.3));
-  const tubeGeo = new THREE.CylinderGeometry(0.09, 0.11, 1.1, 6);
-  for (const m of [new THREE.Mesh(tubeGeo, S), new THREE.Mesh(tubeGeo, W)]) {
+  geos.push(conceptBox(g, S, W, 0.7, 0.08, 0.7, 0, 0.04, 0.3));
+  const tube = new THREE.CylinderGeometry(0.09, 0.11, 1.1, 6);
+  for (const m of [new THREE.Mesh(tube, S), new THREE.Mesh(tube, W)]) {
     m.position.set(0, 0.5, 0.3);
     m.rotation.x = -0.5;
     g.add(m);
   }
-  geos.push(tubeGeo);
+  geos.push(tube);
   return { group: g, mats: [S, W], geos };
+}
+
+function buildTwinBarrelConcept() {
+  const S = solidMat();
+  const W = new THREE.MeshBasicMaterial({ color: BLUE, wireframe: true });
+  const g = new THREE.Group();
+  const geos = [];
+  geos.push(conceptBox(g, S, W, 2.4, 1.0, 3.6, 0, 0.5, 0));
+  geos.push(conceptBox(g, S, W, 1.35, 0.7, 1.8, 0, 1.35, 0));
+  geos.push(conceptBox(g, S, W, 0.30, 0.52, 3.5, 1.42, 0.30, 0));
+  geos.push(conceptBox(g, S, W, 0.30, 0.52, 3.5, -1.42, 0.30, 0));
+  const bg = new THREE.CylinderGeometry(0.09, 0.09, 2.4, 4);
+  for (const bx of [-0.3, 0.3]) {
+    for (const m of [new THREE.Mesh(bg, S), new THREE.Mesh(bg, W)]) {
+      m.rotation.x = Math.PI / 2;
+      m.position.set(bx, 1.5, 2.1);
+      g.add(m);
+    }
+  }
+  geos.push(bg);
+  return { group: g, mats: [S, W], geos };
+}
+
+function buildMedicTruckConcept() {
+  const S = solidMat();
+  const W = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true });
+  const g = new THREE.Group();
+  const geos = [];
+  geos.push(conceptBox(g, S, W, 2.2, 1.2, 2.2, 0, 0.6, -0.75));
+  geos.push(conceptBox(g, S, W, 2.0, 2.2, 1.6, 0, 1.1, 1.0));
+  const R = new THREE.MeshBasicMaterial({ color: 0xff2222, wireframe: true });
+  geos.push(conceptBox(g, S, R, 0.9, 0.22, 0.1, 0, 1.2, -1.9));
+  geos.push(conceptBox(g, S, R, 0.22, 0.9, 0.1, 0, 1.2, -1.9));
+  return { group: g, mats: [S, W, R], geos };
 }
 
 // ---------------------------------------------------------------------------
@@ -289,91 +134,137 @@ export default function HowToPage({ visible, onBack }) {
     renderer.setSize(window.innerWidth, window.innerHeight);
     mount.appendChild(renderer.domElement);
 
-    const scene  = new THREE.Scene();
+    const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x000000);
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
 
-    const disposables = [];
-    const track = (built) => {
-      disposables.push(built);
-      return built;
-    };
-
-    // ---- Ground grid ----
-    const gridSize = 130, gridDiv = 52;
-    const grid = new THREE.GridHelper(gridSize, gridDiv, 0x00aa00, 0x004400);
+    const gridSize = 150;
+    const grid = new THREE.GridHelper(gridSize, 60, 0x00aa00, 0x004400);
     scene.add(grid);
 
-    // ---- Exhibits ----
-    // Each: { label, pos, built }  (label floats above)
+    // Everything that needs tearing down: game entities expose dispose(),
+    // concept models expose { mats, geos }.
+    const entities = [];
+    const concepts = [];
     const exhibits = [];
-    const place = (label, built, x, z, ry = 0, labelY = 3.2, y = 0) => {
-      built.group.position.set(x, y, z);
-      built.group.rotation.y = ry;
-      scene.add(built.group);
-      track(built);
-      exhibits.push({ label, x, y: labelY, z, built });
+
+    /** Places a live game entity and registers its floating label. */
+    const show = (label, entity, x, z, ry = 0, labelY = 3.2, y = 0) => {
+      entity.group.position.set(x, y, z);
+      entity.group.rotation.y = ry;
+      entities.push(entity);
+      exhibits.push({ label, x, y: labelY, z });
+      return entity;
     };
 
-    // Row 1 — armour (faces the walkway)
-    place('ENEMY TANK — LIGHT · 8 PTS',   buildTank(RED, { scale: 0.85 }), -24, -18, Math.PI);
-    place('ENEMY TANK — MEDIUM · 10 PTS', buildTank(RED),                  -12, -18, Math.PI);
-    place('ENEMY TANK — HEAVY · 15 PTS',  buildTank(RED, { scale: 1.25 }),   0, -18, Math.PI);
-    place('YOUR TANK',                    buildTank(BLUE),                  14, -18, Math.PI);
+    /** Places a hand-built concept model. */
+    const showConcept = (label, built, x, z, ry = 0, labelY = 3.2) => {
+      built.group.position.set(x, 0, z);
+      built.group.rotation.y = ry;
+      scene.add(built.group);
+      concepts.push(built);
+      exhibits.push({ label, x, y: labelY, z });
+    };
 
-    // Row 2 — ground forces
-    place('INFANTRY · 1 PT',    buildInfantry(RED),          -24, -6, Math.PI, 2.2);
-    place('SUPPLY TRUCK · DROPS POWER-UP', buildTruck(GREY), -14, -6, Math.PI);
-    place('APC · 5 PTS · DEPLOYS INFANTRY', buildAPC(0xff6666), -2, -6, Math.PI);
-    place('JAMMER · 5 PTS · SCRAMBLES SENSORS', buildTruck(0xff2222, { dish: true }), 10, -6, Math.PI);
-    place('MINEFIELD — KEEP CLEAR', buildMine(), 20, -6, 0, 1.8);
-    place('MINELAYER · 7 PTS · SEEDS MINES', buildTruck(0xff9933), 30, -6, Math.PI);
-    place('ALLIED INFANTRY — FIGHTS FOR YOU', buildInfantry(BLUE), -30, -18, 0, 2.2);
-    place('TURRET EMPLACEMENT · 6 PTS', buildTurret(RED), 28, -18, Math.PI);
-    place('ENEMY HQ · 10 SHOTS · 40 PTS', buildHQ(), 44, -30, Math.PI, 15);
-    place('CRATER — DRIVABLE COVER', buildCrater(), -34, -6, 0, 2.5);
+    const vehicleCfg = {
+      terrain: stubTerrain, movementValidator: null, mineManager: null,
+    };
+    const tankCfg = (cls) => ({
+      position: { x: 0, z: 0, heading: 0 },
+      color: COLORS.enemyTank,
+      tankClass: cls,
+      terrain: stubTerrain,
+      inputManager: null,
+      movementValidator: null,
+    });
 
-    // Row 3 — air
-    place('BOMBER · 20 PTS · SHOOT IT DOWN', buildBomber(RED), -14, 6, Math.PI * 0.5, 10.5, 7);
-    place('YOUR DRONE · SPOTS FOR THE MINIMAP · R TO RETASK', buildDrone(GREEN), 4, 6, 0, 7.5, 5);
-    place('TRANSPORT · 25 PTS · DROPS MINES OR TROOPS', buildBomber(0xff8866), 20, 6, Math.PI * 0.5, 10.5, 7);
+    // ---- Row 1: armour ----
+    show('ENEMY TANK — LIGHT · 8 PTS',  new Tank(scene, tankCfg('light')),  -26, -20, Math.PI);
+    show('ENEMY TANK — MEDIUM · 10 PTS', new Tank(scene, tankCfg('medium')), -13, -20, Math.PI);
+    show('ENEMY TANK — HEAVY · 15 PTS',  new Tank(scene, tankCfg('heavy')),    1, -20, Math.PI);
+    show('YOUR TANK', new Tank(scene, { ...tankCfg('medium'), color: COLORS.playerTank }), 16, -20, Math.PI);
 
-    // Row 4 — power-ups (spinning)
+    // A deployed turret: force it out of its dormant, sunk state for display
+    const turret = new TurretEmplacement(scene, { position: { x: 0, z: 0 }, terrain: stubTerrain });
+    turret._active = true;
+    turret._riseY  = 1;
+    turret._wireMat.color.setHex(COLORS.enemyTank);
+    turret.turretPivot.position.y = turret._turretBaseY;
+    show('TURRET EMPLACEMENT · 6 PTS', turret, 30, -20, Math.PI, 4.2);
+
+    // ---- Row 2: ground forces ----
+    show('INFANTRY · 1 PT',
+      new InfantryUnit(scene, { position: { x: 0, z: 0 }, ...vehicleCfg }), -26, -7, Math.PI, 2.2);
+    show('ALLIED INFANTRY — FIGHTS FOR YOU',
+      new InfantryUnit(scene, { position: { x: 0, z: 0 }, faction: 'friendly', ...vehicleCfg }),
+      -19, -7, 0, 2.2);
+    show('SUPPLY TRUCK · DROPS SUPPLIES',
+      new TruckVehicle(scene, { position: { x: 0, z: 0 }, ...vehicleCfg }), -10, -7, Math.PI);
+    show('APC · 5 PTS · DEPLOYS INFANTRY · MG',
+      new APCVehicle(scene, { position: { x: 0, z: 0 }, ...vehicleCfg }), 2, -7, Math.PI);
+    show('JAMMER · 5 PTS · SCRAMBLES SENSORS',
+      new JammerTruck(scene, { position: { x: 0, z: 0 }, ...vehicleCfg }), 14, -7, Math.PI);
+    show('MINELAYER · 7 PTS · SEEDS MINES',
+      new MinelayerVehicle(scene, { position: { x: 0, z: 0 }, ...vehicleCfg }), 26, -7, Math.PI);
+    show('ENEMY HQ · 10 SHOTS · 40 PTS',
+      new DestructibleBuilding(scene, { position: { x: 0, z: 0 }, terrain: stubTerrain }), 40, -16, 0, 5.5);
+
+    // A patch of live mines
+    const mineManager = new MineManager(scene);
+    for (const [mx, mz] of [[36, -6], [37.4, -4.8], [34.8, -4.4], [36.4, -3.2]]) {
+      mineManager.addMineAt(stubTerrain, mx, mz);
+    }
+    exhibits.push({ label: 'MINEFIELD — KEEP CLEAR', x: 36, y: 1.8, z: -4.6 });
+
+    // ---- Row 3: aircraft (parked above the floor) ----
+    show('BOMBER · 20 PTS · BOMB LINE',
+      new Bomber(scene, {
+        start: { x: 0, z: -1 }, target: { x: 0, z: 0 }, terrain: stubTerrain, onDetonate: () => {},
+      }), -16, 8, Math.PI * 0.5, 10.5, 7);
+    show('TRANSPORT · 25 PTS · MINES OR PARATROOPS',
+      new Transport(scene, {
+        start: { x: 0, z: -1 }, target: { x: 0, z: 0 }, payload: 'troops',
+        terrain: stubTerrain, onDeliver: () => {},
+      }), 6, 8, Math.PI * 0.5, 11, 7);
+    show('YOUR DRONE · SPOTS FOR THE MINIMAP · R TO RETASK',
+      new Drone(scene), 26, 8, 0, 7.5, 5);
+
+    // ---- Row 4: pickups (they spin themselves) ----
     const spinners = [];
-    let px = -24;
+    let px = -26;
     for (const [key, def] of Object.entries(POWERUP.types)) {
-      const pu = buildPowerUp(def.color);
-      place(def.label, pu, px, 16, 0, 3.0);
-      spinners.push(pu.spin);
+      const pu = new PowerUp(scene, { position: { x: px, z: 18 }, type: key, terrain: stubTerrain });
+      entities.push(pu);
+      spinners.push(pu);
+      exhibits.push({ label: def.label, x: px, y: 3.4, z: 18 });
       px += 9;
     }
 
     // ---- Prototype range (east side, roped off) ----
+    const ropeGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(52, 0.8, -34), new THREE.Vector3(52, 0.8, 30),
+    ]);
     const ropeMat = new THREE.LineBasicMaterial({ color: 0xffff00 });
-    const ropePts = [
-      new THREE.Vector3(34, 0.8, -30), new THREE.Vector3(34, 0.8, 30),
-    ];
-    const ropeGeo = new THREE.BufferGeometry().setFromPoints(ropePts);
     scene.add(new THREE.Line(ropeGeo, ropeMat));
-    exhibits.push({ label: '⚠ PROTOTYPE RANGE — CONCEPTS UNDER EVALUATION', x: 44, y: 6.5, z: 0 });
+    exhibits.push({ label: '⚠ PROTOTYPE RANGE — CONCEPTS UNDER EVALUATION', x: 62, y: 6.5, z: 0 });
 
-    place('CONCEPT: TWIN-BARREL TANK', buildTank(BLUE, { twinBarrel: true }), 44, -16, -Math.PI / 2);
-    place('CONCEPT: MORTAR TEAM',      buildMortarTeam(), 44, -4, -Math.PI / 2, 1.8);
-    const shield = buildPowerUp(0x88ffff);
-    place('CONCEPT: SHIELD POWER-UP',  shield, 44, 6, 0, 3.0);
-    spinners.push(shield.spin);
-    place('CONCEPT: MEDIC TRUCK — DO NOT FIRE', buildTruck(0xffffff), 44, 16, -Math.PI / 2);
+    showConcept('CONCEPT: TWIN-BARREL TANK', buildTwinBarrelConcept(), 62, -16, -Math.PI / 2);
+    showConcept('CONCEPT: MORTAR TEAM',      buildMortarTeam(),        62, -4, -Math.PI / 2, 1.8);
+    showConcept('CONCEPT: MEDIC TRUCK — DO NOT FIRE', buildMedicTruckConcept(), 62, 10, -Math.PI / 2);
 
-    // ---- The visitor: small blue infantry figure ----
-    const figure = track(buildInfantry(BLUE));
-    figure.group.position.set(0, 0, 26);
-    scene.add(figure.group);
-    const player = { x: 0, z: 26, heading: Math.PI }; // facing the exhibits
+    // ---- The visitor ----
+    const figure = new InfantryUnit(scene, {
+      position: { x: 0, z: 30 }, faction: 'friendly', ...vehicleCfg,
+    });
+    entities.push(figure);
+    const player = { x: 0, z: 30, heading: Math.PI };
 
     // ---- Input (capture phase so the game underneath never sees it) ----
     const keys = new Set();
     const onKeyDown = (e) => {
-      if (e.code === 'Escape') { e.stopPropagation(); onBack(); return; }
+      // stopImmediatePropagation so the game's own Escape handler (which
+      // would resume the round) never sees this keypress
+      if (e.code === 'Escape') { e.stopImmediatePropagation(); onBack(); return; }
       if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Enter', 'Space'].includes(e.code)) {
         e.stopPropagation();
         e.preventDefault();
@@ -400,7 +291,6 @@ export default function HowToPage({ visible, onBack }) {
       rafId = requestAnimationFrame(tick);
       const dt = Math.min(clock.getDelta(), 0.1);
 
-      // Walk
       if (keys.has('KeyA')) player.heading += 2.6 * dt;
       if (keys.has('KeyD')) player.heading -= 2.6 * dt;
       let move = 0;
@@ -413,19 +303,18 @@ export default function HowToPage({ visible, onBack }) {
         player.x = Math.max(-B, Math.min(B, player.x));
         player.z = Math.max(-B, Math.min(B, player.z));
       }
+      figure.position.set(player.x, 0, player.z);
+      figure.heading = player.heading;
       figure.group.position.set(player.x, 0, player.z);
       figure.group.rotation.y = player.heading;
 
-      // Third-person follow camera
       const camX = player.x - Math.sin(player.heading) * 7;
       const camZ = player.z - Math.cos(player.heading) * 7;
       camera.position.set(camX, 4.2, camZ);
       camera.lookAt(player.x + Math.sin(player.heading) * 4, 1.2, player.z + Math.cos(player.heading) * 4);
 
-      // Spin the power-ups
-      for (const s of spinners) s.rotation.y += dt * 1.4;
+      for (const pu of spinners) pu.update(dt, null);
 
-      // Project labels
       const labelHost = labelsRef.current;
       if (labelHost) {
         for (let i = 0; i < exhibits.length; i++) {
@@ -442,11 +331,9 @@ export default function HowToPage({ visible, onBack }) {
           el.textContent = ex.label;
           v3.set(ex.x, ex.y, ex.z).project(camera);
           const behind = v3.z > 1;
-          const sx = (v3.x * 0.5 + 0.5) * window.innerWidth;
-          const sy = (-v3.y * 0.5 + 0.5) * window.innerHeight;
           el.style.display = behind ? 'none' : 'block';
-          el.style.left = `${sx}px`;
-          el.style.top  = `${sy}px`;
+          el.style.left = `${(v3.x * 0.5 + 0.5) * window.innerWidth}px`;
+          el.style.top  = `${(-v3.y * 0.5 + 0.5) * window.innerHeight}px`;
         }
       }
 
@@ -459,9 +346,12 @@ export default function HowToPage({ visible, onBack }) {
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
       window.removeEventListener('resize', onResize);
-      for (const b of disposables) {
-        for (const m of b.mats ?? []) m.dispose();
-        for (const g of b.geos ?? []) g.dispose();
+      for (const e of entities) e.dispose();
+      mineManager.dispose();
+      for (const c of concepts) {
+        scene.remove(c.group);
+        for (const m of c.mats ?? []) m.dispose();
+        for (const g of c.geos ?? []) g.dispose();
       }
       ropeGeo.dispose();
       ropeMat.dispose();
@@ -476,12 +366,9 @@ export default function HowToPage({ visible, onBack }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: '#000' }}>
-      {/* 3D museum canvas */}
       <div ref={mountRef} style={{ position: 'absolute', inset: 0 }} />
-      {/* Floating exhibit labels */}
       <div ref={labelsRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }} />
 
-      {/* Header */}
       <div style={{
         position: 'absolute', top: 16, left: 0, right: 0, textAlign: 'center',
         color: '#00ff00', fontFamily: 'monospace', pointerEvents: 'none',
@@ -490,7 +377,6 @@ export default function HowToPage({ visible, onBack }) {
         <div style={{ fontSize: 11, color: '#00aa00', marginTop: 4 }}>WALK THE FLOOR · W/S MOVE · A/D TURN · ESC TO RETURN</div>
       </div>
 
-      {/* Commands list */}
       <div style={{
         position: 'absolute', left: 16, top: 90, color: '#00cc00',
         fontFamily: 'monospace', fontSize: 11, lineHeight: 1.9, letterSpacing: 1,
@@ -502,7 +388,7 @@ export default function HowToPage({ visible, onBack }) {
         <div>A / D — TURN HULL</div>
         <div>MOUSE — AIM TURRET</div>
         <div>CLICK — FIRE SELECTED AMMO</div>
-        <div>1 / 2 / 3 — MG · HE · AP</div>
+        <div>1 / 2 / 3 — {AMMO.order.map(t => AMMO.types[t].short).join(' · ')}</div>
         <div>X — DRONE STRIKE (ON TARGET LOCK)</div>
         <div>, / . — BARREL ELEVATION</div>
         <div>P — FIRST / THIRD PERSON</div>
@@ -511,7 +397,6 @@ export default function HowToPage({ visible, onBack }) {
         <div>ESC — PAUSE MENU</div>
       </div>
 
-      {/* Version / date */}
       <div style={{
         position: 'absolute', right: 16, bottom: 14, color: '#008800',
         fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, pointerEvents: 'none',
@@ -519,11 +404,7 @@ export default function HowToPage({ visible, onBack }) {
         WIREZONE v{APP.version} — {APP.date}
       </div>
 
-      <button
-        className="wireframe-btn"
-        onClick={onBack}
-        style={{ position: 'absolute', left: 16, bottom: 14 }}
-      >
+      <button className="wireframe-btn" onClick={onBack} style={{ position: 'absolute', left: 16, bottom: 14 }}>
         BACK
       </button>
     </div>

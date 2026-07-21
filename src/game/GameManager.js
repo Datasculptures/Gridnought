@@ -298,6 +298,10 @@ export class GameManager {
       // Jammer flicker effect
       this._updateJammerEffect(delta);
 
+      // Hide anything past the terrain horizon — distant units used to hang
+      // in empty sky where no ground is drawn
+      this._updateHorizonVisibility();
+
       this.projectileManager.update(delta);
       this.collisionManager.update(delta);
 
@@ -1380,10 +1384,12 @@ export class GameManager {
     for (const ruin of ruins) {
       if (Math.random() >= RUIN.garrisonChance) continue;
       const n = 1 + Math.floor(Math.random() * RUIN.garrisonMax);
+      // Only the first surviving storey is usable — higher slabs would leave
+      // troops hanging in mid-air once the ruin scrolls out of view.
+      const lowFloors = ruin.floors.filter(f => f.y <= RUIN.storeyHeight + 0.1);
       for (let i = 0; i < n; i++) {
-        // Prefer an upper floor when the ruin still has one
-        const floor = (ruin.floors.length && Math.random() < 0.5)
-          ? ruin.floors[Math.floor(Math.random() * ruin.floors.length)]
+        const floor = (lowFloors.length && Math.random() < 0.5)
+          ? lowFloors[Math.floor(Math.random() * lowFloors.length)]
           : null;
         const x = floor ? floor.x + (Math.random() - 0.5) * 3 : ruin.x + (Math.random() - 0.5) * 8;
         const z = floor ? floor.z + (Math.random() - 0.5) * 3 : ruin.z + (Math.random() - 0.5) * 8;
@@ -1516,6 +1522,32 @@ export class GameManager {
       // Jammer out of range — restore visibility
       this._jamVisible = true;
       this._setEnemyVisibility(true);
+    }
+  }
+
+  /**
+   * Culls anything further out than the loaded terrain reaches. Without this
+   * a unit 400 units away still renders — a red dot floating in black sky
+   * with no ground beneath it. Jammer concealment takes precedence.
+   */
+  _updateHorizonVisibility() {
+    const px = this.playerTank.position.x;
+    const pz = this.playerTank.position.z;
+    // Just inside the loaded ring (loadRadius chunks each way)
+    const maxD2 = (CHUNK.loadRadius * CHUNK.size * 0.95) ** 2;
+
+    const apply = (obj, x, z, isEnemy) => {
+      if (!obj) return;
+      const inRange = ((x - px) ** 2 + (z - pz) ** 2) <= maxD2;
+      obj.visible = inRange && (this._jamVisible || !isEnemy);
+    };
+
+    for (const u of this.enemyUnits) {
+      if (u.tank.isAlive) apply(u.tank.group, u.tank.position.x, u.tank.position.z, true);
+    }
+    for (const e of this.entityManager.entities) {
+      if (!e.isAlive || !e.group) continue;
+      apply(e.group, e.position.x, e.position.z, e.faction === 'enemy');
     }
   }
 

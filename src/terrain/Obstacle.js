@@ -136,35 +136,46 @@ export default class Obstacle {
    * up. Built by merging transformed cones into one buffer geometry.
    */
   _buildCaltropGeometry(w, h) {
-    const span = w / 2;
+    // Three legs splayed down to the ground plus one spike straight up.
+    // Built so the leg tips land exactly on y=0, then re-centred on the
+    // bounding box because the caller positions meshes at (base + h/2).
+    const L    = w / 2;                 // leg length
+    const tilt = 0.87;                  // ~50° from vertical
+    const hubY = L * Math.cos(tilt);    // hub height that puts tips on the ground
+    const r    = L * 0.15;              // limb thickness
     const geos = [];
-    const spike = (rotX, rotY) => {
-      const g = new THREE.ConeGeometry(h * 0.16, span, 4);
-      // Cone points +Y from its centre; shift so its base sits at the hub
-      g.translate(0, span / 2, 0);
+
+    const limb = (rotX, rotY) => {
+      const g = new THREE.ConeGeometry(r, L, 4);
+      g.translate(0, L / 2, 0);   // base at origin, apex at +L
       g.rotateX(rotX);
       g.rotateY(rotY);
+      g.translate(0, hubY, 0);    // lift onto the hub
       geos.push(g);
     };
-    spike(0, 0);                                   // straight up
-    const lean = Math.PI * 0.62;                   // splayed legs
-    for (let i = 0; i < 3; i++) spike(lean, (i / 3) * Math.PI * 2);
-    geos.push(new THREE.BoxGeometry(h * 0.3, h * 0.3, h * 0.3)); // hub
 
-    // Merge manually — no BufferGeometryUtils dependency
+    limb(0, 0);                                    // vertical spike
+    for (let i = 0; i < 3; i++) {                  // splayed legs
+      limb(Math.PI - tilt, (i / 3) * Math.PI * 2);
+    }
+    const hub = new THREE.BoxGeometry(r * 2.4, r * 2.4, r * 2.4);
+    hub.translate(0, hubY, 0);
+    geos.push(hub);
+
+    // Merge manually — avoids a BufferGeometryUtils dependency
     let total = 0;
     for (const g of geos) total += g.attributes.position.count;
     const pos = new Float32Array(total * 3);
     let off = 0;
     for (const g of geos) {
-      const p = g.attributes.position.array;
-      pos.set(p, off);
-      off += p.length;
+      pos.set(g.attributes.position.array, off);
+      off += g.attributes.position.array.length;
       g.dispose();
     }
     const merged = new THREE.BufferGeometry();
     merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    merged.translate(0, span * 0.55, 0); // lift so legs rest on the ground
+    // Geometry currently spans y = 0 .. hubY + L; centre it on that span
+    merged.translate(0, -(hubY + L) / 2, 0);
     merged.computeBoundingSphere();
     return merged;
   }
