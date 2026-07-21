@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { HUD as HUD_CONST } from '../utils/constants.js';
+import { HUD as HUD_CONST, AMMO } from '../utils/constants.js';
 import GameState from '../game/GameState.js';
 
 /**
@@ -14,6 +14,7 @@ import GameState from '../game/GameState.js';
  */
 export default function HUD({ playerTankRef, gameState, points = 0 }) {
   const fillRef = useRef(null);
+  const ammoRef = useRef(null);
 
   useEffect(() => {
     if (gameState !== GameState.PLAYING) return;
@@ -25,6 +26,20 @@ export default function HUD({ playerTankRef, gameState, points = 0 }) {
       if (tank && bar) {
         const progress = tank.getReloadProgress(); // 0.0 = reloading, 1.0 = ready
         bar.style.width = `${Math.round(progress * HUD_CONST.reloadBarWidth)}px`;
+      }
+      // Ammo rack: selected type highlighted, empty types dimmed red
+      const rack = ammoRef.current;
+      if (tank && rack && tank.ammo) {
+        let html = '';
+        AMMO.order.forEach((t, i) => {
+          const spec = AMMO.types[t];
+          const n    = tank.ammo[t];
+          const sel  = tank.ammoType === t;
+          const col  = n === 0 ? '#883333' : (sel ? '#ffff00' : '#00aa00');
+          html += `<div style="color:${col}">${sel ? '▸' : ' '}${i + 1} `
+                + `${spec.short.padEnd(3, ' ')} ${String(n).padStart(3, ' ')}</div>`;
+        });
+        if (rack.innerHTML !== html) rack.innerHTML = html;
       }
       rafId = requestAnimationFrame(tick);
     };
@@ -95,6 +110,22 @@ export default function HUD({ playerTankRef, gameState, points = 0 }) {
           RELOAD
         </div>
       </div>
+
+      {/* Ammunition rack — bottom right of centre */}
+      <div
+        ref={ammoRef}
+        style={{
+          position: 'absolute',
+          bottom: HUD_CONST.reloadBarOffsetBottom - 12,
+          left: '50%',
+          transform: 'translateX(120px)',
+          fontFamily: 'monospace',
+          fontSize: 11,
+          lineHeight: 1.6,
+          letterSpacing: 1,
+          whiteSpace: 'pre',
+        }}
+      />
     </div>
   );
 }

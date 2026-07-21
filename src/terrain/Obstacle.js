@@ -54,6 +54,8 @@ export default class Obstacle {
         ? new THREE.ConeGeometry(w / 2, h, 7)
       : descriptor.type === 'cylinder'
         ? new THREE.CylinderGeometry(w / 2, w / 2, h, 8)
+      : descriptor.type === 'bollard'
+        ? this._buildCaltropGeometry(w, h)
       : new THREE.BoxGeometry(w, h, d);
 
     const meshY = this.y + h / 2;
@@ -127,6 +129,45 @@ export default class Obstacle {
   // ---------------------------------------------------------------------------
   // Wedge geometry (triangular prism — ramps from height h at back to 0 at front)
   // ---------------------------------------------------------------------------
+
+  /**
+   * Anti-tank caltrop: four heavy spikes radiating from a central hub in a
+   * tetrahedral arrangement — three splayed down to the ground, one straight
+   * up. Built by merging transformed cones into one buffer geometry.
+   */
+  _buildCaltropGeometry(w, h) {
+    const span = w / 2;
+    const geos = [];
+    const spike = (rotX, rotY) => {
+      const g = new THREE.ConeGeometry(h * 0.16, span, 4);
+      // Cone points +Y from its centre; shift so its base sits at the hub
+      g.translate(0, span / 2, 0);
+      g.rotateX(rotX);
+      g.rotateY(rotY);
+      geos.push(g);
+    };
+    spike(0, 0);                                   // straight up
+    const lean = Math.PI * 0.62;                   // splayed legs
+    for (let i = 0; i < 3; i++) spike(lean, (i / 3) * Math.PI * 2);
+    geos.push(new THREE.BoxGeometry(h * 0.3, h * 0.3, h * 0.3)); // hub
+
+    // Merge manually — no BufferGeometryUtils dependency
+    let total = 0;
+    for (const g of geos) total += g.attributes.position.count;
+    const pos = new Float32Array(total * 3);
+    let off = 0;
+    for (const g of geos) {
+      const p = g.attributes.position.array;
+      pos.set(p, off);
+      off += p.length;
+      g.dispose();
+    }
+    const merged = new THREE.BufferGeometry();
+    merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    merged.translate(0, span * 0.55, 0); // lift so legs rest on the ground
+    merged.computeBoundingSphere();
+    return merged;
+  }
 
   _buildWedgeGeometry(w, h, d) {
     const geo = new THREE.BufferGeometry();

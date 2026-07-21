@@ -39,11 +39,38 @@ export default class PowerUp {
   }
 
   _buildMesh() {
-    const def = POWERUP.types[this.type] ?? POWERUP.types.repair;
+    const def = POWERUP.types[this.type] ?? POWERUP.types.armour;
     this._wireMat = new THREE.MeshBasicMaterial({ color: def.color, wireframe: true });
-    this._geo     = new THREE.OctahedronGeometry(POWERUP.size, 0);
+    this._geos    = [];
     this.group    = new THREE.Group();
-    this.group.add(new THREE.Mesh(this._geo, this._wireMat));
+
+    const add = (geo, x = 0, y = 0, z = 0, rx = 0, rz = 0) => {
+      this._geos.push(geo);
+      const m = new THREE.Mesh(geo, this._wireMat);
+      m.position.set(x, y, z);
+      m.rotation.x = rx;
+      m.rotation.z = rz;
+      this.group.add(m);
+    };
+
+    if (def.shape === 'shield') {
+      // Heater shield: tapered slab with a raised boss and rim bar
+      add(new THREE.BoxGeometry(1.25, 1.35, 0.16));
+      add(new THREE.ConeGeometry(0.62, 0.55, 4), 0, -0.95, 0, Math.PI); // pointed base
+      add(new THREE.BoxGeometry(1.25, 0.14, 0.24), 0, 0.5, 0);          // rim bar
+      add(new THREE.SphereGeometry(0.24, 6, 5), 0, -0.05, 0.14);        // boss
+    } else if (def.shape === 'shells') {
+      // A small stack of cannon rounds
+      const body = new THREE.CylinderGeometry(0.19, 0.19, 0.85, 6);
+      const tip  = new THREE.ConeGeometry(0.19, 0.34, 6);
+      for (const [sx, sz] of [[-0.34, 0], [0.34, 0], [0, 0.36]]) {
+        add(body, sx, 0, sz);
+        add(tip,  sx, 0.6, sz);
+      }
+    } else {
+      add(new THREE.OctahedronGeometry(POWERUP.size, 0));
+    }
+
     this.group.position.set(this.position.x, this._baseY + 1.2, this.position.z);
   }
 
@@ -73,7 +100,7 @@ export default class PowerUp {
   dispose() {
     if (this.group) {
       this.scene.remove(this.group);
-      this._geo.dispose();
+      if (this._geos) { this._geos.forEach(g => g.dispose()); this._geos = null; }
       this._wireMat.dispose();
       this.group = null;
     }

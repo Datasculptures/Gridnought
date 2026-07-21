@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { INFANTRY, MACHINEGUN, COLORS } from '../utils/constants.js';
+import { INFANTRY, MACHINEGUN, COLORS, ALLY } from '../utils/constants.js';
 import DestructionEffect from '../rendering/DestructionEffect.js';
 import { WeaponType } from '../weapons/WeaponTypes.js';
 
@@ -33,10 +33,14 @@ export default class InfantryUnit {
 
     // Unified entity metadata (EntityManager contract)
     this.kind           = 'infantry';
-    this.faction        = 'enemy';
+    this.faction        = config.faction === 'friendly' ? 'friendly' : 'enemy';
     this.hitRadius      = INFANTRY.hitRadius;
-    this.scoreValue     = 1;
+    this.scoreValue     = this.faction === 'friendly' ? 0 : 1;
     this.blocksMovement = false;
+    this.isAlly         = this.faction === 'friendly';
+
+    // Allies stand on higher ground (ruin floors) via an explicit offset
+    this.yOffset = config.yOffset || 0;
 
     // Fire state
     this._fireCooldown = INFANTRY.fireCooldown; // don't fire on first frame
@@ -74,7 +78,9 @@ export default class InfantryUnit {
       polygonOffsetFactor: 1,
       polygonOffsetUnits: 1,
     });
-    this._wireMat = new THREE.MeshBasicMaterial({ color: COLORS.enemyTank, wireframe: true });
+    this._wireMat = new THREE.MeshBasicMaterial({
+      color: this.isAlly ? ALLY.color : COLORS.enemyTank, wireframe: true,
+    });
 
     this.group = new THREE.Group();
     this._geos = [];
@@ -101,7 +107,7 @@ export default class InfantryUnit {
   }
 
   _applyTransform() {
-    this.position.y = this.terrain.getHeightAt(this.position.x, this.position.z);
+    this.position.y = this.terrain.getHeightAt(this.position.x, this.position.z) + this.yOffset;
     this.group.position.copy(this.position);
     this.group.rotation.y = this.heading;
   }
@@ -121,14 +127,26 @@ export default class InfantryUnit {
       }
       return;
     }
-    const { playerTank, projectileManager } = ctx;
+    const { projectileManager } = ctx;
 
-    const dx   = playerTank.position.x - this.position.x;
-    const dz   = playerTank.position.z - this.position.z;
+    // Allies hunt the nearest hostile; enemy infantry hunt the player
+    const target = this.isAlly ? this._findEnemyTarget(ctx) : ctx.playerTank;
+    const sight  = this.isAlly ? ALLY.sightRange : INFANTRY.sightRange;
+    const range  = this.isAlly ? ALLY.fireRange  : INFANTRY.fireRange;
+
+    if (!target) {
+      // Nothing to fight — idle in place
+      this.speed = 0;
+      this._applyTransform();
+      return;
+    }
+
+    const dx   = target.position.x - this.position.x;
+    const dz   = target.position.z - this.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
 
     // --- AI state transitions ---
-    if (dist <= INFANTRY.sightRange) {
+    if (dist <= sight) {
       this._aiState = 'chase';
     } else if (this._aiState === 'chase') {
       this._aiState = 'patrol';
@@ -153,7 +171,7 @@ export default class InfantryUnit {
       // --- Chase / fire ---
       const targetHeading = Math.atan2(dx, dz);
       this._turnToward(targetHeading, delta);
-      this.speed = (dist > INFANTRY.fireRange) ? INFANTRY.moveSpeed : 0;
+      this.speed = (dist > range) ? INFANTRY.moveSpeed : 0;
     }
 
     // --- Movement ---
@@ -171,11 +189,11 @@ export default class InfantryUnit {
     }
 
     // --- Fire logic (single shot with cooldown) ---
-    if (this._aiState === 'chase' && dist <= INFANTRY.fireRange) {
+    if (this._aiState === 'chase' && dist <= range) {
       this._fireCooldown -= delta;
       if (this._fireCooldown <= 0) {
-        this._fireShot(playerTank, projectileManager);
-        this._fireCooldown = INFANTRY.fireCooldown;
+        this._fireShot(target, projectileManager);
+        this._fireCooldown = this.isAlly ? ALLY.fireCooldown : INFANTRY.fireCooldown;
       }
     }
 
@@ -186,6 +204,27 @@ export default class InfantryUnit {
     let diff = ((targetHeading - this.heading + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
     this.heading += Math.sign(diff) * Math.min(Math.abs(diff), INFANTRY.turnSpeed * delta);
     this.heading = ((this.heading % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  }
+
+  /**
+   * Nearest live hostile for an allied trooper: enemy tanks and any
+   * enemy-faction entity within sight range.
+   * @returns {object|null}
+   */
+  _findEnemyTarget(ctx) {
+    let best = null, bestD2 = ALLY.sightRange * ALLY.sightRange;
+    const consider = (e) => {
+      if (!e?.isAlive) return;
+      const dx = e.position.x - this.position.x;
+      const dz = e.position.z - this.position.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD2) { bestD2 = d2; best = e; }
+    };
+    for (const u of (ctx.enemyUnits ?? [])) consider(u.tank);
+    for (const e of (ctx.entityManager?.entities ?? [])) {
+      if (e.faction === 'enemy' && e.kind !== 'bomber' && e.kind !== 'transport') consider(e);
+    }
+    return best;
   }
 
   _fireShot(playerTank, projectileManager) {

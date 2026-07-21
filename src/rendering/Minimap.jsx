@@ -195,7 +195,8 @@ export default function Minimap({
           if (!e.isAlive) continue;
           if (e.kind === 'powerup') continue;          // pickups don't show
           if (!inView(e.position.x, e.position.z)) continue;
-          // Enemy contacts require sensor coverage; neutral trucks always show
+          // Enemy contacts require sensor coverage; allies and neutral
+          // trucks report their own positions and always show
           if (e.faction === 'enemy' && !detected(e.position.x, e.position.z)) continue;
 
           const px = w2m(e.position.x, cx);
@@ -203,11 +204,32 @@ export default function Minimap({
 
           switch (e.kind) {
             case 'infantry':
-              ctx.fillStyle = MINIMAP.enemyColor;
+              // Allied troopers show in friendly blue, always visible
+              ctx.fillStyle = e.isAlly ? MINIMAP.playerColor : MINIMAP.enemyColor;
               ctx.beginPath();
               ctx.arc(px, py, MINIMAP.tankRadius * 0.6, 0, Math.PI * 2);
               ctx.fill();
               break;
+            case 'minelayer':
+              ctx.fillStyle = '#ff9933';
+              ctx.beginPath();
+              ctx.arc(px, py, MINIMAP.tankRadius * 0.8, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+            case 'transport': {
+              const s = MINIMAP.tankRadius * 1.7;
+              ctx.save();
+              ctx.translate(px, py);
+              ctx.rotate(Math.atan2(e._dir?.x ?? 0, -(e._dir?.z ?? 1)));
+              ctx.strokeStyle = '#ff8866';
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(-s, s * 0.6); ctx.lineTo(0, -s); ctx.lineTo(s, s * 0.6);
+              ctx.moveTo(-s * 0.6, s * 0.2); ctx.lineTo(s * 0.6, s * 0.2);
+              ctx.stroke();
+              ctx.restore();
+              break;
+            }
             case 'truck':
               ctx.fillStyle = '#888888';
               ctx.beginPath();

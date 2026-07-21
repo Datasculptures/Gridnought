@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TANK, TURRET, PROJECTILE, COLORS } from '../utils/constants.js';
+import { TANK, TURRET, PROJECTILE, COLORS, AMMO } from '../utils/constants.js';
 import DestructionEffect from '../rendering/DestructionEffect.js';
 import { WeaponType } from '../weapons/WeaponTypes.js';
 
@@ -49,6 +49,9 @@ export default class Tank {
     this.reloadTimer       = 0;
     this.canFire           = true;
 
+    // Side this tank fights for — drives friendly-fire rules
+    this.faction           = config.inputManager ? 'friendly' : 'enemy';
+
     // --- Tank class + armor ---
     this.tankClass         = config.tankClass ?? 'medium';
     this._armorMaxHP       = CLASS_HP[this.tankClass] ?? 5;
@@ -59,6 +62,13 @@ export default class Tank {
 
     // --- First-person aim state (world-stabilised turret yaw) ---
     this._aimWorldYaw = null;
+
+    // --- Ammunition (player only; AI tanks use the plain cannon) ---
+    this.ammoType   = 'shell';
+    this.ammo       = {};
+    for (const k of AMMO.order) this.ammo[k] = AMMO.types[k].start;
+    this._burstLeft  = 0;
+    this._burstTimer = 0;
 
     // --- Power-up modifiers / audio ---
     this.reloadFactor = 1;     // <1 while rapid-fire is active
@@ -311,15 +321,22 @@ export default class Tank {
   }
 
   /**
-   * Restores HP to every armor zone (repair power-up).
-   * @param {number} amount
+   * Restores HP to every armor zone (armour pickup).
+   * @param {number} amount - HP added per zone
+   * @param {number} [cap]  - optional ceiling below the tank's own maximum
+   * @returns {boolean} true if any zone actually gained HP
    */
-  repair(amount) {
-    if (!this.isAlive) return;
+  repair(amount, cap = Infinity) {
+    if (!this.isAlive) return false;
+    const ceiling = Math.min(this._armorMaxHP, cap);
+    let gained = false;
     for (const zone of Object.keys(this.armor)) {
-      this.armor[zone] = Math.min(this._armorMaxHP, this.armor[zone] + amount);
+      const next = Math.min(ceiling, this.armor[zone] + amount);
+      if (next > this.armor[zone]) gained = true;
+      this.armor[zone] = next;
     }
     this._updateHullColors();
+    return gained;
   }
 
   /**
@@ -523,37 +540,38 @@ export default class Tank {
     this.barrelElevPivot.rotation.x = -this._elevation;
 
     // 13. Firing
-    if (wantsFire && this.canFire && this.projectileManager) {
-      this.group.updateWorldMatrix(true, true);
-      const origin = this.getBarrelTip();
-
-      // Compute 3D launch velocity from turret world-angle + elevation
-      const worldAngle = this.heading + this.turretAngle;
-      const cosE = Math.cos(this._elevation);
-      const sinE = Math.sin(this._elevation);
-      const velocity = new THREE.Vector3(
-        Math.sin(worldAngle) * cosE * PROJECTILE.muzzleVelocity,
-        sinE                       * PROJECTILE.muzzleVelocity,
-        Math.cos(worldAngle) * cosE * PROJECTILE.muzzleVelocity,
-      );
-
-      this.projectileManager.spawn({
-        origin,
-        velocity,
-        owner:         this,
-        color:         this.inputManager ? COLORS.projectile : COLORS.enemyProjectile,
-        weaponType:    WeaponType.HEAVY_CANNON,
-        damageMultiplier: this.damageFactor,
-        gravity:       0,          // cannon fires straight — no arc
-        maxFlightTime: 40,         // long enough to cross the full map twice
-        explodeOnKill: true,       // detonate on impact
-      });
-      if (this.effectsManager) {
-        this.effectsManager.spawnMuzzleFlash(origin.clone());
+    if (this.inputManager) {
+      // --- Player: selected ammunition, with burst support ---
+      if (wantsFire && this.canFire && this.projectileManager) {
+        const spec = AMMO.types[this.ammoType];
+        if (this.ammo[this.ammoType] > 0) {
+          this._burstLeft  = Math.min(spec.shotsPerFire, this.ammo[this.ammoType]);
+          this._burstTimer = 0;
+          this.canFire     = false;
+          this.reloadTimer = spec.reload * (this.reloadFactor ?? 1);
+        } else {
+          this.outOfAmmo = true; // HUD hint; cleared when a round is available
+        }
       }
+      // Feed the burst
+      if (this._burstLeft > 0) {
+        this._burstTimer -= delta;
+        if (this._burstTimer <= 0) {
+          this._fireRound(AMMO.types[this.ammoType]);
+          this._burstLeft--;
+          this._burstTimer = AMMO.types[this.ammoType].burstInterval ?? 0;
+        }
+      }
+    } else if (wantsFire && this.canFire && this.projectileManager) {
+      // --- AI tanks: plain cannon, unlimited ---
+      this._fireRound({
+        muzzleVelocity: PROJECTILE.muzzleVelocity,
+        radius: PROJECTILE.radius,
+        color: COLORS.enemyProjectile,
+        weapon: 'HEAVY_CANNON',
+      });
       this.canFire     = false;
       this.reloadTimer = TANK.reloadTime * (this.reloadFactor ?? 1);
-      this.soundManager?.fire(this.position);
     }
 
     // Reset one-shot AI fire command after reading
@@ -565,6 +583,64 @@ export default class Tank {
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
+
+  /**
+   * Launches one round of the given ammo spec from the barrel tip.
+   * Consumes player ammunition; AI tanks fire freely.
+   * @param {{muzzleVelocity:number, radius:number, color:number, weapon:string}} spec
+   */
+  _fireRound(spec) {
+    if (!this.projectileManager) return;
+    this.group.updateWorldMatrix(true, true);
+    const origin = this.getBarrelTip();
+
+    const worldAngle = this.heading + this.turretAngle;
+    const cosE = Math.cos(this._elevation);
+    const sinE = Math.sin(this._elevation);
+    const v    = spec.muzzleVelocity;
+    const velocity = new THREE.Vector3(
+      Math.sin(worldAngle) * cosE * v,
+      sinE                       * v,
+      Math.cos(worldAngle) * cosE * v,
+    );
+
+    this.projectileManager.spawn({
+      origin,
+      velocity,
+      owner:            this,
+      color:            this.inputManager ? spec.color : COLORS.enemyProjectile,
+      radius:           spec.radius,
+      weaponType:       WeaponType[spec.weapon],
+      damageMultiplier: this.damageFactor,
+      gravity:          0,
+      maxFlightTime:    40,
+      explodeOnKill:    true,
+    });
+
+    if (this.inputManager) this.ammo[this.ammoType] = Math.max(0, this.ammo[this.ammoType] - 1);
+    if (this.effectsManager) this.effectsManager.spawnMuzzleFlash(origin.clone());
+    if (spec.weapon === 'PLAYER_MG') this.soundManager?.mg(this.position);
+    else this.soundManager?.fire(this.position);
+  }
+
+  /** Switches the selected ammunition type (player only). */
+  selectAmmo(type) {
+    if (!AMMO.types[type]) return false;
+    this.ammoType   = type;
+    this.outOfAmmo  = false;
+    this._burstLeft = 0;
+    return true;
+  }
+
+  /** Adds rounds of `type`, clamped to that type's magazine. @returns {number} added */
+  addAmmo(type, count) {
+    const spec = AMMO.types[type];
+    if (!spec) return 0;
+    const before = this.ammo[type];
+    this.ammo[type] = Math.min(spec.max, before + count);
+    if (this.ammo[type] > 0) this.outOfAmmo = false;
+    return this.ammo[type] - before;
+  }
 
   /** World-space position of the barrel tip. Ensures world matrix is current. */
   getBarrelTip() {
@@ -635,6 +711,14 @@ export default class Tank {
     // Restore full armor and reset face colours to black
     this.armor = freshArmor(this._armorMaxHP);
     this._updateHullColors();
+
+    // Restock ammunition
+    if (this.ammo) {
+      for (const k of AMMO.order) this.ammo[k] = AMMO.types[k].start;
+      this.ammoType   = 'shell';
+      this._burstLeft = 0;
+      this.outOfAmmo  = false;
+    }
 
     this._applyTransform();
   }

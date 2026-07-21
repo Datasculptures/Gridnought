@@ -58,4 +58,19 @@ export const WeaponType = Object.freeze({
     damage:      2,
     penetrating: true,
   }),
+  // Player-selectable ammunition (number keys 1-3)
+  PLAYER_MG: Object.freeze({
+    id:          'PLAYER_MG',
+    label:       'Machine Gun',
+    range:       45,
+    damage:      0.5,
+    penetrating: true,
+  }),
+  AP_SHELL: Object.freeze({
+    id:          'AP_SHELL',
+    label:       'AP Shell',
+    range:       95,
+    damage:      4,     // double a regular shell
+    penetrating: true,
+  }),
 });

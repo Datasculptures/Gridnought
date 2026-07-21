@@ -85,6 +85,9 @@ export default class CollisionManager {
       for (const tank of this._tanks) {
         if (!tank.isAlive) continue;
         if (proj.owner === tank) continue; // no self-hits
+        // No friendly fire between units of the same side
+        const of = proj.owner?.faction;
+        if (of && tank.faction && of === tank.faction) continue;
 
         hitCenter.set(
           tank.position.x,

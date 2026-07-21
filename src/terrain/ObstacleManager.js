@@ -1,6 +1,6 @@
 import Obstacle from './Obstacle.js';
 import { seededRandom } from './noise.js';
-import { COLLISION, OBSTACLES, SPAWN, CHUNK, CELL_SIZE, CITY } from '../utils/constants.js';
+import { COLLISION, OBSTACLES, SPAWN, CHUNK, CELL_SIZE, CITY, BOLLARD, RUIN } from '../utils/constants.js';
 
 /**
  * Chunk-based obstacle system for the infinite world.
@@ -25,6 +25,9 @@ export default class ObstacleManager {
     this.terrain = terrain;
     // "cx,cz" → Obstacle[]
     this._byChunk = new Map();
+    // Ruin footprints produced by the most recent chunk generation, drained
+    // by GameManager so it can garrison them
+    this.ruins = [];
   }
 
   /**
@@ -54,6 +57,7 @@ export default class ObstacleManager {
   _populateChunk(chunk) {
     const key = chunk.cx + ',' + chunk.cz;
     if (this._byChunk.has(key)) return;
+    this.ruins = []; // fresh list for this chunk
 
     const rng    = seededRandom(this._chunkHash(chunk.cx, chunk.cz));
     const origin = { x: chunk.cx * CHUNK.size, z: chunk.cz * CHUNK.size };
@@ -72,6 +76,9 @@ export default class ObstacleManager {
       default: break;
     }
 
+    // Anti-tank bollard clusters — dragon's teeth guarding open approaches
+    this._genBollards(descriptors, rng, origin, center);
+
     const obstacles = [];
     for (const desc of descriptors) {
       if (!desc.skipFilter && !this._placementOk(desc.position.x, desc.position.z)) continue;
@@ -80,6 +87,102 @@ export default class ObstacleManager {
     this._byChunk.set(key, obstacles);
   }
 
+
+  /**
+   * A shelled-out building: fragments of exterior wall with gaps blown
+   * through them, a couple of interior partition stubs, and partial floor
+   * slabs left hanging at storey heights. Infantry can shelter inside, and
+   * the gaps give the player firing lanes through the shell.
+   *
+   * Records the ruin's footprint on `this.ruins` so GameManager can garrison
+   * it when the chunk loads.
+   */
+  _genRuin(out, rng, cx, cz, areaW, areaD, height) {
+    const storeys = Math.max(1, Math.round(height / RUIN.storeyHeight));
+    const hw = areaW / 2, hd = areaD / 2;
+    const T = 0.5; // wall thickness
+
+    // Exterior walls, broken into segments with missing pieces
+    const wallRun = (along, fixed, horizontal, len) => {
+      const pieces = 3;
+      for (let i = 0; i < pieces; i++) {
+        if (rng() > RUIN.wallChance) continue; // blown out
+        const seg = len / pieces;
+        const o   = (i - (pieces - 1) / 2) * seg;
+        const h   = height * (0.35 + rng() * 0.65); // jagged tops
+        out.push({
+          type: 'cityBlock', rotation: 0,
+          position: horizontal ? { x: along + o, z: fixed } : { x: fixed, z: along + o },
+          dimensions: horizontal
+            ? { width: seg * 0.92, height: h, depth: T }
+            : { width: T, height: h, depth: seg * 0.92 },
+        });
+      }
+    };
+    wallRun(cx, cz - hd, true,  areaW);
+    wallRun(cx, cz + hd, true,  areaW);
+    wallRun(cz, cx - hw, false, areaD);
+    wallRun(cz, cx + hw, false, areaD);
+
+    // Interior partition stubs
+    for (let i = 0; i < 2; i++) {
+      if (rng() > 0.7) continue;
+      const vertical = rng() < 0.5;
+      const h = height * (0.3 + rng() * 0.4);
+      out.push({
+        type: 'cityBlock', rotation: 0,
+        position: { x: cx + (rng() - 0.5) * areaW * 0.5, z: cz + (rng() - 0.5) * areaD * 0.5 },
+        dimensions: vertical
+          ? { width: T, height: h, depth: areaD * (0.25 + rng() * 0.3) }
+          : { width: areaW * (0.25 + rng() * 0.3), height: h, depth: T },
+      });
+    }
+
+    // Partial floor slabs hanging at storey heights
+    const floors = [];
+    for (let s = 1; s < storeys; s++) {
+      if (rng() > RUIN.floorChance) continue;
+      const fy = s * RUIN.storeyHeight;
+      const fw = areaW * (0.4 + rng() * 0.45);
+      const fd = areaD * (0.4 + rng() * 0.45);
+      const fx = cx + (rng() - 0.5) * (areaW - fw);
+      const fz = cz + (rng() - 0.5) * (areaD - fd);
+      out.push({
+        type: 'cityBlock', rotation: 0, baseY: this.terrain.getHeightAt(fx, fz) + fy,
+        position: { x: fx, z: fz },
+        dimensions: { width: fw, height: 0.3, depth: fd },
+      });
+      floors.push({ x: fx, z: fz, y: fy });
+    }
+
+    this.ruins.push({ x: cx, z: cz, floors });
+  }
+
+  /**
+   * Anti-tank bollards: short lines of caltrops laid across open ground,
+   * angled so they read as a deliberate barrier rather than scatter.
+   */
+  _genBollards(out, rng, origin, center) {
+    if (Math.hypot(center.x, center.z) < BOLLARD.minOriginDist) return;
+    if (rng() >= BOLLARD.cellChance) return;
+
+    const count = BOLLARD.clusterMin
+      + Math.floor(rng() * (BOLLARD.clusterMax - BOLLARD.clusterMin + 1));
+    const lineAng = rng() * Math.PI * 2;
+    const sx = origin.x + 8 + rng() * (CHUNK.size - 16);
+    const sz = origin.z + 8 + rng() * (CHUNK.size - 16);
+    const t = OBSTACLES.types.bollard;
+
+    for (let i = 0; i < count; i++) {
+      const off = (i - (count - 1) / 2) * BOLLARD.spacing;
+      out.push({
+        type: 'bollard',
+        position: { x: sx + Math.cos(lineAng) * off, z: sz + Math.sin(lineAng) * off },
+        rotation: rng() * Math.PI * 2,
+        dimensions: { width: t.width, height: t.height, depth: t.depth },
+      });
+    }
+  }
 
   /** Common placement filter: spawn clearance, slope, rivers, roads. */
   _placementOk(x, z) {
@@ -181,6 +284,12 @@ export default class ObstacleManager {
         if (rng() < 0.20 - tier * 0.12) continue;
 
         const maxH = 3 + tier * tier * (CITY.maxHeight - 3);
+
+        // Some blocks are shelled-out ruins instead of intact buildings
+        if (rng() < RUIN.chance) {
+          this._genRuin(out, rng, midX, midZ, areaW, areaD, Math.max(4, maxH * 0.6));
+          continue;
+        }
 
         if (tier > 0.6) {
           // Downtown: podium + offset tower, or a tall slab

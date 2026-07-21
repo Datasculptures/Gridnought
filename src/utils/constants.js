@@ -117,11 +117,50 @@ export const VALID_KEYS = new Set([
   'ArrowLeft', 'ArrowRight',         // camera pan
   'KeyP',                            // camera pin toggle
   'KeyR',                            // retask drone
-  'KeyX',                            // machine gun burst
+  'KeyX',                            // drone strike
+  'Digit1', 'Digit2', 'Digit3',      // ammo selection
   'Comma', 'Period',                 // barrel elevation down/up
   'Space',                           // future use
   'Escape',                          // menu / pause
 ]);
+
+// Player ammunition types — selected with the number keys
+export const AMMO = {
+  order: ['mg', 'shell', 'ap'],
+  types: {
+    mg: {
+      key: 'Digit1', label: 'MACHINE GUN', short: 'MG',
+      max: 150, start: 90, pickup: 60,
+      shotsPerFire: 3,        // burst
+      burstInterval: 0.07,
+      reload: 0.55,           // rapid
+      muzzleVelocity: 46,
+      radius: 0.09,
+      color: 0xffffff,
+      weapon: 'PLAYER_MG',
+    },
+    shell: {
+      key: 'Digit2', label: 'HE SHELL', short: 'HE',
+      max: 30, start: 18, pickup: 10,
+      shotsPerFire: 1,
+      reload: 1.8,            // TANK.reloadTime
+      muzzleVelocity: 31,
+      radius: 0.15,
+      color: 0xffff00,
+      weapon: 'HEAVY_CANNON',
+    },
+    ap: {
+      key: 'Digit3', label: 'AP SHELL', short: 'AP',
+      max: 10, start: 4, pickup: 4,
+      shotsPerFire: 1,
+      reload: 1.8,
+      muzzleVelocity: 34,
+      radius: 0.13,
+      color: 0xff8844,
+      weapon: 'AP_SHELL',
+    },
+  },
+};
 
 // Tank
 export const TANK = {
@@ -243,6 +282,8 @@ export const OBSTACLES = {
     missile:  { weight: 0, width: 0.8,  height: 7.0,  depth: 0.8  },
     // Valley
     tree:     { weight: 0, width: 2.5,  height: 6.0,  depth: 2.5  },
+    // Anti-tank caltrop
+    bollard:  { weight: 0, width: 3.2,  height: 3.2,  depth: 3.2  },
   },
 
   collisionPadding: 0.3,
@@ -432,14 +473,19 @@ export const POWERUP = {
   overdriveFactor: 1.35,
   apDuration: 25,          // seconds of double damage
   apFactor: 2,
+  armourPerZone: 1,        // armour pickup adds this to every zone
+  armourCap:     5,        // and never past this
   types: {
-    repair:    { color: 0x00ffff, label: 'REPAIR' },
+    armour:    { color: 0x00ffff, label: 'ARMOUR', shape: 'shield' },
+    ammo:      { color: 0xffcc00, label: 'AMMO',   shape: 'shells' },
     rapid:     { color: 0xffff00, label: 'RAPID FIRE' },
     radar:     { color: 0xff00ff, label: 'RADAR' },
     overdrive: { color: 0xff8800, label: 'OVERDRIVE' },
     ap:        { color: 0xff3333, label: 'AP ROUNDS' },
     drone:     { color: 0x00ff88, label: 'DRONE' },
   },
+  // Chance a destroyed enemy vehicle leaves supplies behind
+  dropChance: 0.25,
 };
 
 // Endless-mode respawns and difficulty scaling
@@ -569,6 +615,72 @@ export const CRATER = {
   garrison: 3,
   coverChance: 0.5,     // chance an incoming ranged hit is absorbed by the lip
   garrisonMinOriginDist: 170,
+};
+
+// Minelayer — enemy vehicle that seeds live mines along its patrol route
+export const MINELAYER = {
+  count:        1,
+  moveSpeed:    7,
+  turnSpeed:    1.7,
+  hp:           2,
+  color:        0xff9933,
+  hitRadius:    2.0,
+  minSpawnDist: 30,
+  score:        7,
+  layInterval:  7,     // seconds between mines
+  maxMines:     10,    // per vehicle
+  hull: { width: 2.4, height: 1.3, depth: 4.0 },
+};
+
+// Transport aircraft — airdrops mines or paratroops
+export const TRANSPORT = {
+  intervalMin: 90,
+  intervalMax: 200,
+  altitude: 30,
+  speed: 22,
+  hitRadius: 5.0,
+  score: 25,
+  dropCount: 5,
+  dropInterval: 0.55,
+  dropStartDist: 60,
+  spawnDist: 420,
+  despawnDist: 380,
+  fallSpeed: 9,        // paratroop/mine descent rate
+};
+
+// Friendly infantry — allied squads that engage nearby enemies
+export const ALLY = {
+  cellSize: 320,        // candidate squad per world cell
+  chance: 0.3,
+  minOriginDist: 120,
+  squadMin: 2,
+  squadMax: 4,
+  color: 0x4488ff,
+  sightRange: 60,
+  fireRange: 26,
+  fireCooldown: 1.4,
+  cap: 14,              // max live allies in the world
+};
+
+// Anti-tank bollards — big immovable caltrops
+export const BOLLARD = {
+  cellChance: 0.16,     // per eligible chunk
+  clusterMin: 2,
+  clusterMax: 5,
+  spacing: 7,
+  size: 3.2,            // spike span
+  minOriginDist: 120,
+};
+
+// Ruined buildings — fragmented shells with partial floors
+export const RUIN = {
+  chance: 0.35,         // of city blocks that generate as ruins
+  wallChance: 0.7,      // per perimeter segment
+  floorChance: 0.6,     // per storey
+  storeyHeight: 3.2,
+  garrisonChance: 0.5,
+  garrisonMax: 2,
+  coverChance: 0.5,
 };
 
 // Gunsight target lock

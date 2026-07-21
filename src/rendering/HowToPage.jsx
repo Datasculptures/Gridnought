@@ -327,6 +327,8 @@ export default function HowToPage({ visible, onBack }) {
     place('APC · 5 PTS · DEPLOYS INFANTRY', buildAPC(0xff6666), -2, -6, Math.PI);
     place('JAMMER · 5 PTS · SCRAMBLES SENSORS', buildTruck(0xff2222, { dish: true }), 10, -6, Math.PI);
     place('MINEFIELD — KEEP CLEAR', buildMine(), 20, -6, 0, 1.8);
+    place('MINELAYER · 7 PTS · SEEDS MINES', buildTruck(0xff9933), 30, -6, Math.PI);
+    place('ALLIED INFANTRY — FIGHTS FOR YOU', buildInfantry(BLUE), -30, -18, 0, 2.2);
     place('TURRET EMPLACEMENT · 6 PTS', buildTurret(RED), 28, -18, Math.PI);
     place('ENEMY HQ · 10 SHOTS · 40 PTS', buildHQ(), 44, -30, Math.PI, 15);
     place('CRATER — DRIVABLE COVER', buildCrater(), -34, -6, 0, 2.5);
@@ -334,6 +336,7 @@ export default function HowToPage({ visible, onBack }) {
     // Row 3 — air
     place('BOMBER · 20 PTS · SHOOT IT DOWN', buildBomber(RED), -14, 6, Math.PI * 0.5, 10.5, 7);
     place('YOUR DRONE · SPOTS FOR THE MINIMAP · R TO RETASK', buildDrone(GREEN), 4, 6, 0, 7.5, 5);
+    place('TRANSPORT · 25 PTS · DROPS MINES OR TROOPS', buildBomber(0xff8866), 20, 6, Math.PI * 0.5, 10.5, 7);
 
     // Row 4 — power-ups (spinning)
     const spinners = [];
@@ -498,7 +501,8 @@ export default function HowToPage({ visible, onBack }) {
         <div>W / S — DRIVE</div>
         <div>A / D — TURN HULL</div>
         <div>MOUSE — AIM TURRET</div>
-        <div>CLICK — MAIN GUN</div>
+        <div>CLICK — FIRE SELECTED AMMO</div>
+        <div>1 / 2 / 3 — MG · HE · AP</div>
         <div>X — DRONE STRIKE (ON TARGET LOCK)</div>
         <div>, / . — BARREL ELEVATION</div>
         <div>P — FIRST / THIRD PERSON</div>

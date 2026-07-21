@@ -72,6 +72,9 @@ export default class EntityManager {
         if (!e.isAlive) continue;
         if (e.projectileTransparent) continue; // e.g. power-ups
         if (proj.owner === e) continue; // no self-hits
+        // No friendly fire: same-faction rounds pass through
+        const of = proj.owner?.faction;
+        if (of && of === e.faction) continue;
         const hc = e.getHitCenter();
         const dx = pos.x - hc.x;
         const dy = pos.y - hc.y;

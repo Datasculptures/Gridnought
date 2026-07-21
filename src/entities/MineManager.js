@@ -75,6 +75,22 @@ export default class MineManager {
     }
   }
 
+  /** Places a single live mine at (x, z). Used by minelayers and airdrops. */
+  addMineAt(terrain, x, z) {
+    const y = terrain.getHeightAt(x, z);
+    if (y < -1.2) return null; // no mines in water
+    const pos = new THREE.Vector3(x, y, z);
+    const solid = new THREE.Mesh(this._geo, this._solidMat);
+    solid.position.copy(pos);
+    const wire = new THREE.Mesh(this._geo, this._wireMat);
+    wire.position.copy(pos);
+    this.scene.add(solid);
+    this.scene.add(wire);
+    const mine = { position: pos.clone(), solid, wire, triggered: false };
+    this.mines.push(mine);
+    return mine;
+  }
+
   /**
    * Scatters `count` mines within `radius` of (cx, cz) — used to ring enemy
    * base sites. Deterministic from `seed`.

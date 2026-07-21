@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER, COLLISION, TARGETING, EMPLACEMENT, BASE, CRATER } from '../utils/constants.js';
+import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER, COLLISION, TARGETING, EMPLACEMENT, BASE, CRATER, AMMO, MINELAYER, TRANSPORT, ALLY, RUIN } from '../utils/constants.js';
 import GameState from './GameState.js';
 import InputManager from '../input/InputManager.js';
 import ChunkedTerrain from '../terrain/ChunkedTerrain.js';
@@ -21,6 +21,8 @@ import PowerUp from '../entities/PowerUp.js';
 import Bomber from '../entities/Bomber.js';
 import TurretEmplacement from '../entities/TurretEmplacement.js';
 import DestructibleBuilding from '../entities/DestructibleBuilding.js';
+import MinelayerVehicle from '../entities/MinelayerVehicle.js';
+import Transport from '../entities/Transport.js';
 import SoundManager from '../audio/SoundManager.js';
 import Drone from '../entities/Drone.js';
 import MineManager from '../entities/MineManager.js';
@@ -88,6 +90,8 @@ export class GameManager {
     // Deterministic world features already materialised (base + crater nests)
     this._spawnedBases        = new Set();
     this._spawnedNests        = new Set();
+    this._spawnedAllies       = new Set();
+    this._transportTimer      = 0;
 
     // Map type for current round + player-selected preference ('random' = pick randomly)
     this.mapType              = 'hills';
@@ -213,6 +217,16 @@ export class GameManager {
     // X launches a drone strike on the locked target
     this.inputManager.onKeyPress('KeyX', () => this._tryDroneStrike());
 
+    // Number keys select ammunition
+    for (const type of AMMO.order) {
+      this.inputManager.onKeyPress(AMMO.types[type].key, () => {
+        if (this.state !== GameState.PLAYING) return;
+        if (!this.playerTank.selectAmmo(type)) return;
+        const n = this.playerTank.ammo[type];
+        this._pushMessage(`${AMMO.types[type].label} — ${n} ROUND${n === 1 ? '' : 'S'}`);
+      });
+    }
+
     // Mine manager — generates 0-2 clusters of small red mines each round
     this.mineManager = new MineManager(this.scene);
     this.mineManager.generate(this.terrain, this.terrain.seed);
@@ -273,6 +287,7 @@ export class GameManager {
       }
       this._updateThreat(delta);
       this._updateBomber(delta);
+      this._updateTransport(delta);
 
       // Stream terrain chunks around the player
       this.terrain.setFocus(this.playerTank.position.x, this.playerTank.position.z);
@@ -599,6 +614,50 @@ export class GameManager {
     this._pushMessage('AIRCRAFT INBOUND — ENEMY BOMBER');
   }
 
+  /**
+   * Enemy transport runs — periodically a cargo aircraft crosses overhead
+   * and airdrops either a mine string or a stick of paratroops.
+   */
+  _updateTransport(delta) {
+    if (this._transportTimer === undefined || this._transportTimer <= 0) {
+      this._transportTimer = TRANSPORT.intervalMin
+        + Math.random() * (TRANSPORT.intervalMax - TRANSPORT.intervalMin);
+      return;
+    }
+    this._transportTimer -= delta;
+    if (this._transportTimer > 0) return;
+
+    const ang = Math.random() * Math.PI * 2;
+    const px  = this.playerTank.position.x;
+    const pz  = this.playerTank.position.z;
+    const payload = Math.random() < 0.5 ? 'mines' : 'troops';
+    this.entityManager.add(new Transport(this.scene, {
+      start:  { x: px - Math.sin(ang) * TRANSPORT.spawnDist, z: pz - Math.cos(ang) * TRANSPORT.spawnDist },
+      target: { x: px, z: pz },
+      payload,
+      terrain: this.terrain,
+      onDeliver: (pos, kind) => this._handleAirdrop(pos, kind),
+    }));
+    this._pushMessage(payload === 'mines'
+      ? 'TRANSPORT INBOUND — MINE DROP'
+      : 'TRANSPORT INBOUND — PARATROOPS');
+  }
+
+  /** A dropped crate has landed: seed a mine or deploy a trooper. */
+  _handleAirdrop(pos, kind) {
+    if (kind === 'mines') {
+      this.mineManager?.addMineAt(this.terrain, pos.x, pos.z);
+      return;
+    }
+    if (this.entityManager.alive(e => e.kind === 'infantry').length >= ENDLESS.infantryCap + 8) return;
+    this.entityManager.add(new InfantryUnit(this.scene, {
+      position:          { x: pos.x, z: pos.z },
+      terrain:           this.terrain,
+      movementValidator: this.movementValidator,
+      mineManager:       this.mineManager,
+    }));
+  }
+
   /** Ground detonation: area damage to the player and anything nearby. */
   _handleBombDetonation(pos) {
     this.soundManager.explosion(pos);
@@ -692,6 +751,7 @@ export class GameManager {
         // An enemy tank went down — the threat manager refills the pool
         this._addPoints(tank.scoreValue ?? SCORE.enemyTank);
         this._pushMessage('ENEMY TANK DESTROYED');
+        this._maybeDropSupplies(tank.position.x, tank.position.z);
       }
     } else {
       this.soundManager.clank(tank.position);
@@ -741,6 +801,8 @@ export class GameManager {
     return {
       playerTank:        this.playerTank,
       projectileManager: this.projectileManager,
+      entityManager:     this.entityManager,
+      enemyUnits:        this.enemyUnits,
     };
   }
 
@@ -855,6 +917,12 @@ export class GameManager {
         ...base(),
       }));
     }
+    for (let i = 0; i < MINELAYER.count; i++) {
+      this.entityManager.add(new MinelayerVehicle(this.scene, {
+        position: this._makeVehicleSpawnPos(null, MINELAYER.minSpawnDist),
+        ...base(),
+      }));
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -875,6 +943,8 @@ export class GameManager {
     this._bomberTimer     = 0; // re-rolls a fresh random interval on first tick
     this._spawnedBases    = new Set();
     this._spawnedNests    = new Set();
+    this._spawnedAllies   = new Set();
+    this._transportTimer  = 0;
     if (this.playerTank) {
       this.playerTank.reloadFactor = 1;
       this.playerTank.speedFactor  = 1;
@@ -925,20 +995,36 @@ export class GameManager {
     }
   }
 
+  /** Spawns a pickup of `type` at a world position. */
+  _dropPickup(x, z, type) {
+    this.entityManager.add(new PowerUp(this.scene, {
+      position: { x, z }, type, terrain: this.terrain,
+    }));
+  }
+
+  /**
+   * Destroyed enemy armour and vehicles leave supplies behind a quarter of
+   * the time — either armour plating or a load of ammunition.
+   */
+  _maybeDropSupplies(x, z) {
+    if (Math.random() >= POWERUP.dropChance) return;
+    this._dropPickup(x, z, Math.random() < 0.5 ? 'armour' : 'ammo');
+    this._pushMessage('SUPPLIES DROPPED');
+  }
+
   /** Fired by EntityManager whenever a registered entity is destroyed. */
   _handleEntityKill(e, _proj) {
     this._addPoints(e.scoreValue);
     this.soundManager.explosion(e.position);
 
-    // Supply trucks drop a random power-up where they died
+    // Supply trucks always drop a random power-up where they died
     if (e.kind === 'truck') {
       const types = Object.keys(POWERUP.types);
       const type  = types[Math.floor(Math.random() * types.length)];
-      this.entityManager.add(new PowerUp(this.scene, {
-        position: { x: e.position.x, z: e.position.z },
-        type,
-        terrain: this.terrain,
-      }));
+      this._dropPickup(e.position.x, e.position.z, type);
+    } else if (e.faction === 'enemy' && e.kind !== 'infantry') {
+      // APCs, jammers, minelayers, turrets, aircraft — chance of supplies
+      this._maybeDropSupplies(e.position.x, e.position.z);
     }
 
     // Destroyed vehicles come back elsewhere after a delay
@@ -1021,10 +1107,24 @@ export class GameManager {
       if (dx * dx + dz * dz > POWERUP.pickupRadius * POWERUP.pickupRadius) continue;
       pu.collect();
       this.soundManager.pickup();
+      if (pu.type === 'armour') {
+        const gained = this.playerTank.repair(POWERUP.armourPerZone, POWERUP.armourCap);
+        this._pushMessage(gained ? 'ARMOUR REINFORCED' : 'ARMOUR ALREADY AT MAXIMUM');
+        continue;
+      }
+      if (pu.type === 'ammo') {
+        // Resupply the emptiest magazine so pickups always matter
+        let best = AMMO.order[0], worst = Infinity;
+        for (const t of AMMO.order) {
+          const frac = this.playerTank.ammo[t] / AMMO.types[t].max;
+          if (frac < worst) { worst = frac; best = t; }
+        }
+        const added = this.playerTank.addAmmo(best, AMMO.types[best].pickup);
+        this._pushMessage(`+${added} ${AMMO.types[best].label}`);
+        continue;
+      }
       this._pushMessage(`${POWERUP.types[pu.type]?.label ?? 'POWER-UP'} ACQUIRED`);
-      if (pu.type === 'repair') {
-        this.playerTank.repair(POWERUP.repairAmount);
-      } else if (pu.type === 'rapid') {
+      if (pu.type === 'rapid') {
         this._rapidTimer = POWERUP.rapidDuration;
         this.playerTank.reloadFactor = 0.5;
       } else if (pu.type === 'radar') {
@@ -1035,6 +1135,8 @@ export class GameManager {
       } else if (pu.type === 'ap') {
         this._apTimer = POWERUP.apDuration;
         this.playerTank.damageFactor = POWERUP.apFactor;
+      } else if (pu.type === 'repair') {
+        this.playerTank.repair(POWERUP.repairAmount ?? 3);
       } else if (pu.type === 'drone') {
         if (this.drones.filter(d => d.isAlive).length >= DRONE.maxFleet) {
           this._pushMessage('DRONE BAY FULL');
@@ -1234,6 +1336,72 @@ export class GameManager {
   }
 
   /**
+   * Spawns an allied squad if this chunk holds an ally cell's centre.
+   * Blue troopers fight nearby enemies on their own initiative.
+   */
+  _maybeSpawnAllies(cx, cz, inThisChunk) {
+    const cellX = Math.floor(cx / ALLY.cellSize);
+    const cellZ = Math.floor(cz / ALLY.cellSize);
+    const key = cellX + ',' + cellZ;
+    if (this._spawnedAllies.has(key)) return;
+
+    const rng = this._cellRng(cellX, cellZ, 0x1a2b3c4d);
+    if (rng() >= ALLY.chance) { this._spawnedAllies.add(key); return; }
+
+    const ax = (cellX + 0.25 + rng() * 0.5) * ALLY.cellSize;
+    const az = (cellZ + 0.25 + rng() * 0.5) * ALLY.cellSize;
+    if (!inThisChunk(ax, az)) return;
+    this._spawnedAllies.add(key);
+    if (Math.hypot(ax, az) < ALLY.minOriginDist) return;
+    if (this.terrain.isHazardAt(ax, az)) return;
+    if (this.entityManager.alive(e => e.isAlly).length >= ALLY.cap) return;
+
+    const n = ALLY.squadMin + Math.floor(rng() * (ALLY.squadMax - ALLY.squadMin + 1));
+    for (let i = 0; i < n; i++) {
+      const a = rng() * Math.PI * 2, r = rng() * 6;
+      this.entityManager.add(new InfantryUnit(this.scene, {
+        position:          { x: ax + Math.cos(a) * r, z: az + Math.sin(a) * r },
+        faction:           'friendly',
+        terrain:           this.terrain,
+        movementValidator: this.movementValidator,
+        mineManager:       this.mineManager,
+      }));
+    }
+    this._pushMessage('FRIENDLY SQUAD IN SECTOR');
+  }
+
+  /**
+   * Garrisons ruins the obstacle generator just produced — defenders on the
+   * ground floor and occasionally up on a surviving slab.
+   */
+  _garrisonRuins() {
+    const ruins = this.obstacleManager?.ruins;
+    if (!ruins || ruins.length === 0) return;
+    for (const ruin of ruins) {
+      if (Math.random() >= RUIN.garrisonChance) continue;
+      const n = 1 + Math.floor(Math.random() * RUIN.garrisonMax);
+      for (let i = 0; i < n; i++) {
+        // Prefer an upper floor when the ruin still has one
+        const floor = (ruin.floors.length && Math.random() < 0.5)
+          ? ruin.floors[Math.floor(Math.random() * ruin.floors.length)]
+          : null;
+        const x = floor ? floor.x + (Math.random() - 0.5) * 3 : ruin.x + (Math.random() - 0.5) * 8;
+        const z = floor ? floor.z + (Math.random() - 0.5) * 3 : ruin.z + (Math.random() - 0.5) * 8;
+        this.entityManager.add(new InfantryUnit(this.scene, {
+          position:          { x, z },
+          terrain:           this.terrain,
+          movementValidator: this.movementValidator,
+          mineManager:       this.mineManager,
+          coverChance:       RUIN.coverChance,
+          stationary:        true,
+          yOffset:           floor ? floor.y + 0.3 : 0,
+        }));
+      }
+    }
+    this.obstacleManager.ruins = [];
+  }
+
+  /**
    * Registers chunk-load spawning: ambient infantry whose density scales
    * with distance from the origin, plus occasional power-up pickups.
    * Called for the initial terrain and again after regeneration.
@@ -1252,6 +1420,12 @@ export class GameManager {
 
       // Crater nests — infantry dug into the bigger shell holes
       this._maybeGarrisonCrater(chunk, inThisChunk);
+
+      // Allied squads patrolling the sector
+      this._maybeSpawnAllies(cx, cz, inThisChunk);
+
+      // Defenders holding any ruins this chunk just produced
+      this._garrisonRuins();
 
       // Ambient power-up
       if (Math.random() < POWERUP.chunkChance) {
