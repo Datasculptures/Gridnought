@@ -15,6 +15,7 @@ import Transport from '../entities/Transport.js';
 import Drone from '../entities/Drone.js';
 import PowerUp from '../entities/PowerUp.js';
 import MineManager from '../entities/MineManager.js';
+import { BUILDING_TEMPLATES } from './BuildingTemplates.js';
 
 /**
  * HOW TO / ABOUT — the Area X museum.
@@ -252,6 +253,52 @@ export default function HowToPage({ visible, onBack }) {
     showConcept('CONCEPT: MORTAR TEAM',      buildMortarTeam(),        62, -4, -Math.PI / 2, 1.8);
     showConcept('CONCEPT: MEDIC TRUCK — DO NOT FIRE', buildMedicTruckConcept(), 62, 10, -Math.PI / 2);
 
+    // ---- Building template street (west district, roped in for evaluation) ----
+    // A two-sided street the visitor can walk down; each template is lettered
+    // A–L so the good ones can be called out and wired into the world.
+    const streetX = -54;
+    const rowZ    = [-32, -18, -4, 10, 24, 38];
+    const byLetter = Object.fromEntries(BUILDING_TEMPLATES.map(t => [t.letter, t]));
+    const districtRows = [
+      { x: streetX - 10, ry:  Math.PI / 2, letters: ['A', 'C', 'D', 'K', 'F', 'J'] }, // west curb, faces east
+      { x: streetX + 10, ry: -Math.PI / 2, letters: ['B', 'G', 'I', 'E', 'L', 'H'] }, // east curb, faces west
+    ];
+    for (const row of districtRows) {
+      row.letters.forEach((letter, i) => {
+        const tpl   = byLetter[letter];
+        const built = tpl.build();
+        built.group.position.set(row.x, 0, rowZ[i]);
+        built.group.rotation.y = row.ry;
+        scene.add(built.group);
+        concepts.push(built);
+        exhibits.push({ label: `${tpl.letter} · ${tpl.name}`, x: row.x, y: tpl.labelY, z: rowZ[i] });
+      });
+    }
+    // Painted street: two curb lines and a dashed centre line
+    const streetMat = new THREE.LineBasicMaterial({ color: 0x006600 });
+    const centreMat = new THREE.LineBasicMaterial({ color: 0xaaaa00 });
+    const zA = rowZ[0] - 10, zB = rowZ[rowZ.length - 1] + 10;
+    const curbPts = [
+      new THREE.Vector3(streetX - 5, 0.05, zA), new THREE.Vector3(streetX - 5, 0.05, zB),
+      new THREE.Vector3(streetX + 5, 0.05, zA), new THREE.Vector3(streetX + 5, 0.05, zB),
+    ];
+    const curbGeo  = new THREE.BufferGeometry().setFromPoints(curbPts);
+    const curbLine = new THREE.LineSegments(curbGeo, streetMat);
+    scene.add(curbLine);
+    const dashPts = [];
+    for (let z = zA; z < zB; z += 4) {
+      dashPts.push(new THREE.Vector3(streetX, 0.05, z), new THREE.Vector3(streetX, 0.05, z + 2));
+    }
+    const dashGeo  = new THREE.BufferGeometry().setFromPoints(dashPts);
+    const dashLine = new THREE.LineSegments(dashGeo, centreMat);
+    scene.add(dashLine);
+    // Loose street lines torn down explicitly in cleanup (like the rope)
+    const streetLines = [
+      { line: curbLine, geo: curbGeo, mat: streetMat },
+      { line: dashLine, geo: dashGeo, mat: centreMat },
+    ];
+    exhibits.push({ label: '⌂ BUILDING TEMPLATES — PICK THE KEEPERS', x: streetX, y: 8, z: zA - 3 });
+
     // ---- The visitor ----
     const figure = new InfantryUnit(scene, {
       position: { x: 0, z: 30 }, faction: 'friendly', ...vehicleCfg,
@@ -352,6 +399,11 @@ export default function HowToPage({ visible, onBack }) {
         scene.remove(c.group);
         for (const m of c.mats ?? []) m.dispose();
         for (const g of c.geos ?? []) g.dispose();
+      }
+      for (const s of streetLines) {
+        scene.remove(s.line);
+        s.geo.dispose();
+        s.mat.dispose();
       }
       ropeGeo.dispose();
       ropeMat.dispose();
