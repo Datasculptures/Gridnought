@@ -49,8 +49,9 @@ export default class Tank {
     this.reloadTimer       = 0;
     this.canFire           = true;
 
-    // Side this tank fights for — drives friendly-fire rules
-    this.faction           = config.inputManager ? 'friendly' : 'enemy';
+    // Side this tank fights for — drives target selection
+    this.faction           = config.faction ?? (config.inputManager ? 'friendly' : 'enemy');
+    this.isAlly            = this.faction === 'friendly' && !config.inputManager;
 
     // --- Tank class + armor ---
     this.tankClass         = config.tankClass ?? 'medium';

@@ -109,7 +109,10 @@ export default class TurretEmplacement {
       }
       return;
     }
-    const player = ctx?.playerTank;
+    // Engage the closest hostile in reach — player, ally tank, or trooper
+    const player = ctx?.findHostile
+      ? ctx.findHostile(this, EMPLACEMENT.activateRange)
+      : ctx?.playerTank;
     if (!player?.isAlive) return;
 
     const dx   = player.position.x - this.position.x;

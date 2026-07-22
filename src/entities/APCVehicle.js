@@ -170,9 +170,9 @@ export default class APCVehicle {
       return;
     }
 
-    // Turret + MG toward the player (infantry-grade weapon)
-    const player = ctx?.playerTank;
-    if (player?.isAlive) this._updateWeapon(delta, player, ctx.projectileManager);
+    // Turret + MG toward the nearest hostile (infantry-grade weapon)
+    const target = ctx?.findHostile ? ctx.findHostile(this, APC.fireRange * 2.5) : ctx?.playerTank;
+    if (target?.isAlive) this._updateWeapon(delta, target, ctx.projectileManager);
 
     // Steer toward waypoint
     const dx   = this._waypoint.x - this.position.x;

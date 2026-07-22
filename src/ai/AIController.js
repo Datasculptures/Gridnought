@@ -62,6 +62,16 @@ export default class AIController {
   }
 
   /**
+   * Supplies a function returning the unit this tank should currently be
+   * fighting. Called every frame so the AI always engages whoever is nearest
+   * rather than locking onto one opponent for the whole battle.
+   * @param {() => object|null} fn
+   */
+  setTargetProvider(fn) {
+    this._targetProvider = fn;
+  }
+
+  /**
    * Notifies the AI of the current game state.
    * Clears all commands immediately when the game is not PLAYING.
    */
@@ -90,6 +100,17 @@ export default class AIController {
     this.commands.aimTarget = null;
 
     if (!this.tank.isAlive) return;
+
+    // Re-acquire the nearest opponent each frame. Whoever is closest gets
+    // hunted; if they're out of reach the pursuit states close the distance.
+    if (this._targetProvider) {
+      const next = this._targetProvider();
+      if (next !== this.playerTank) {
+        this.playerTank = next;
+        // A new target means the old approach is stale
+        if (this.state === 'aim' || this.state === 'fire') this.state = 'pursue';
+      }
+    }
 
     // Stuck detection always runs before the state machine
     this._runStuckDetection(delta);

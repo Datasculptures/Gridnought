@@ -46,6 +46,7 @@ export class GameManager {
     this.movementValidator    = null;
     this.playerTank           = null;
     this.enemyUnits           = []; // [{ tank, ai }] — threat-scaled pool
+    this.allyUnits            = []; // [{ tank, ai }] — friendly armour
     this.projectileManager    = null;
     this.collisionManager     = null;
     this.obstacleManager      = null;
@@ -285,6 +286,10 @@ export class GameManager {
         u.ai.update(delta);
         u.tank.update(delta);
       }
+      for (const u of this.allyUnits) {
+        u.ai.update(delta);
+        u.tank.update(delta);
+      }
       this._updateThreat(delta);
       this._updateBomber(delta);
       this._updateTransport(delta);
@@ -350,6 +355,9 @@ export class GameManager {
       for (const u of this.enemyUnits) {
         if (!u.tank.isAlive) u.tank.update(delta);
       }
+      for (const u of this.allyUnits) {
+        if (!u.tank.isAlive) u.tank.update(delta);
+      }
       this.entityManager.update(delta, this._entityCtx(), { deadOnly: true });
       this._setEnemyVisibility(true); // restore full visibility at round end
       this.soundManager.engineOff();
@@ -374,6 +382,7 @@ export class GameManager {
     this.regenerateTerrain();
     this._resetDrones();
     for (const u of this.enemyUnits) u.ai.setGameState(GameState.PLAYING);
+    for (const u of this.allyUnits)  u.ai.setGameState(GameState.PLAYING);
     this.setState(GameState.PLAYING);
     // Straight into the tank — first-person from the first frame.
     // Called from the start button/key event, so pointer lock is granted.
@@ -390,6 +399,7 @@ export class GameManager {
     this.regenerateTerrain();
     this._resetDrones();
     for (const u of this.enemyUnits) u.ai.setGameState(GameState.PLAYING);
+    for (const u of this.allyUnits)  u.ai.setGameState(GameState.PLAYING);
     this.setState(GameState.PLAYING);
     this.cameraController.enterFirstPerson(this._canvas);
   }
@@ -408,11 +418,17 @@ export class GameManager {
     return 'medium';
   }
 
-  /** Creates a fully-wired AI enemy tank and adds it to the pool. */
-  _createEnemyUnit(spawn, tankClass = 'medium') {
+  /**
+   * Creates a fully-wired AI tank for either side and adds it to that side's
+   * pool. Both use the same controller; only the faction, colour, and target
+   * provider differ — an enemy hunts the nearest friendly, an ally hunts the
+   * nearest hostile.
+   */
+  _createTankUnit(spawn, { faction = 'enemy', tankClass = 'medium' } = {}) {
     const tank = new Tank(this.scene, {
       position: { x: spawn.x, z: spawn.z, heading: spawn.heading ?? Math.random() * Math.PI * 2 },
-      color: COLORS.enemyTank,
+      color: faction === 'enemy' ? COLORS.enemyTank : ALLY.tankColor,
+      faction,
       tankClass,
       terrain: this.terrain,
       inputManager: null,
@@ -423,15 +439,22 @@ export class GameManager {
     tank.soundManager   = this.soundManager;
 
     const ai = new AIController(tank, this.terrain, this.projectileManager, this.obstacleManager);
-    ai.setTarget(this.playerTank);
     ai.mineManager = this.mineManager;
+    // Re-acquire the closest opponent every frame rather than fixating
+    ai.setTargetProvider(() => this.findHostile(tank));
+    ai.setTarget(this.findHostile(tank));
     ai.setGameState(this.state ?? GameState.MENU);
     tank.setAIController(ai);
 
     this.collisionManager.registerTank(tank);
     const unit = { tank, ai };
-    this.enemyUnits.push(unit);
+    (faction === 'enemy' ? this.enemyUnits : this.allyUnits).push(unit);
     return unit;
+  }
+
+  /** Back-compat helper for the threat system. */
+  _createEnemyUnit(spawn, tankClass = 'medium') {
+    return this._createTankUnit(spawn, { faction: 'enemy', tankClass });
   }
 
   /** Current threat level and the enemy tank count it allows. */
@@ -730,6 +753,7 @@ export class GameManager {
     if (document.pointerLockElement) document.exitPointerLock();
     this.soundManager.engineOff();
     for (const u of this.enemyUnits) u.ai.setGameState(GameState.MENU);
+    for (const u of this.allyUnits)  u.ai.setGameState(GameState.MENU);
     this.setState(GameState.MENU);
   }
 
@@ -751,6 +775,9 @@ export class GameManager {
         // Player death ends the run
         this.pendingRoundResult = 'defeat';
         this.roundEndDelayTimer = ROUND.resultDisplayDelay;
+      } else if (tank.faction === 'friendly') {
+        // An allied tank was lost — no score either way
+        this._pushMessage('FRIENDLY ARMOUR LOST');
       } else {
         // An enemy tank went down — the threat manager refills the pool
         this._addPoints(tank.scoreValue ?? SCORE.enemyTank);
@@ -807,7 +834,48 @@ export class GameManager {
       projectileManager: this.projectileManager,
       entityManager:     this.entityManager,
       enemyUnits:        this.enemyUnits,
+      findHostile:       (self, maxRange) => this.findHostile(self, maxRange),
     };
+  }
+
+  /**
+   * Nearest live unit of the opposing side. Enemies use this to pick whoever
+   * is closest — the player, an allied tank, or an allied trooper — instead
+   * of fixating on the player; allies use it to pick their next target.
+   * @param {{faction:string, position:THREE.Vector3}} self
+   * @param {number} [maxRange]
+   * @returns {object|null}
+   */
+  findHostile(self, maxRange = Infinity) {
+    const seekEnemy = self.faction !== 'enemy';
+    let best = null;
+    let bestD2 = maxRange * maxRange;
+
+    const consider = (u) => {
+      if (!u || !u.isAlive) return;
+      const dx = u.position.x - self.position.x;
+      const dz = u.position.z - self.position.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD2) { bestD2 = d2; best = u; }
+    };
+
+    // May be called during init(), before the entity registry exists
+    const registry = this.entityManager?.entities ?? [];
+
+    if (seekEnemy) {
+      for (const u of this.enemyUnits) consider(u.tank);
+      for (const e of registry) {
+        // Aircraft are engaged by the player's gun, not chased on the ground
+        if (e.faction === 'enemy' && e.kind !== 'bomber' && e.kind !== 'transport') consider(e);
+      }
+    } else {
+      consider(this.playerTank);
+      for (const u of this.allyUnits) consider(u.tank);
+      for (const e of registry) {
+        if (e.faction === 'friendly') consider(e);
+      }
+    }
+    return best;
   }
 
   /**
@@ -1221,6 +1289,22 @@ export class GameManager {
         u.ai.generatePatrolWaypoints();
       }
     }
+
+    // Allied armour left far behind is retired rather than teleported —
+    // a fresh squad will bring armour along somewhere ahead instead.
+    for (let i = this.allyUnits.length - 1; i >= 0; i--) {
+      const u = this.allyUnits[i];
+      const dx = u.tank.position.x - px;
+      const dz = u.tank.position.z - pz;
+      const gone = !u.tank.isAlive
+        && (!u.tank.destructionEffect || u.tank.destructionEffect.isComplete);
+      if ((dx * dx + dz * dz) > 450 * 450 || gone) {
+        this.collisionManager.unregisterTank(u.tank);
+        u.ai.dispose();
+        u.tank.dispose();
+        this.allyUnits.splice(i, 1);
+      }
+    }
   }
 
   /** Deterministic [0,1) hash for a world cell + world seed + salt. */
@@ -1371,7 +1455,20 @@ export class GameManager {
         mineManager:       this.mineManager,
       }));
     }
-    this._pushMessage('FRIENDLY SQUAD IN SECTOR');
+
+    // Occasional armour support rolling with the squad
+    const liveAllyTanks = this.allyUnits.filter(u => u.tank.isAlive).length;
+    if (rng() < ALLY.tankChance && liveAllyTanks < ALLY.maxTanks) {
+      const unit = this._createTankUnit(
+        { x: ax + 8, z: az + 8, heading: rng() * Math.PI * 2 },
+        { faction: 'friendly', tankClass: 'medium' },
+      );
+      unit.ai.setGameState(this.state);
+      unit.ai.generatePatrolWaypoints();
+      this._pushMessage('FRIENDLY ARMOUR IN SECTOR');
+    } else {
+      this._pushMessage('FRIENDLY SQUAD IN SECTOR');
+    }
   }
 
   /**
@@ -1545,6 +1642,9 @@ export class GameManager {
     for (const u of this.enemyUnits) {
       if (u.tank.isAlive) apply(u.tank.group, u.tank.position.x, u.tank.position.z, true);
     }
+    for (const u of this.allyUnits) {
+      if (u.tank.isAlive) apply(u.tank.group, u.tank.position.x, u.tank.position.z, false);
+    }
     for (const e of this.entityManager.entities) {
       if (!e.isAlive || !e.group) continue;
       apply(e.group, e.position.x, e.position.z, e.faction === 'enemy');
@@ -1603,6 +1703,7 @@ export class GameManager {
     this.roundEndDelayTimer = 0;
 
     for (const u of this.enemyUnits) u.ai.setGameState(GameState.ROUND_END);
+    for (const u of this.allyUnits)  u.ai.setGameState(GameState.ROUND_END);
     this.setState(GameState.ROUND_END);
 
     if (typeof this._roundEndCallback === 'function') {
@@ -1688,6 +1789,8 @@ export class GameManager {
       u.ai.dispose();
       u.tank.dispose();
     }
+    for (const u of this.allyUnits) { u.ai.dispose(); u.tank.dispose(); }
+    this.allyUnits = [];
     this.collisionManager.clearTanks();
     this.collisionManager.registerTank(this.playerTank);
     for (const u of this.enemyUnits) {
@@ -1726,6 +1829,7 @@ export class GameManager {
     this.movementValidator.setMobileEntityProvider(() => [
       this.playerTank,
       ...this.enemyUnits.map(u => u.tank),
+      ...this.allyUnits.map(u => u.tank),
       ...this.entityManager.getBlockers(),
     ]);
   }
@@ -1745,6 +1849,11 @@ export class GameManager {
       u.tank.dispose();
     }
     this.enemyUnits = [];
+    for (const u of this.allyUnits) {
+      u.ai.dispose();
+      u.tank.dispose();
+    }
+    this.allyUnits = [];
 
     const systems = [
       this.inputManager,

@@ -30,6 +30,12 @@ export default class CollisionManager {
     this._tanks = [];
   }
 
+  /** Removes a single tank (an allied unit being retired). */
+  unregisterTank(tank) {
+    const i = this._tanks.indexOf(tank);
+    if (i !== -1) this._tanks.splice(i, 1);
+  }
+
   /** Callback fired with (tank, projectile) when a tank is hit. */
   onHit(callback) {
     this._onHitCallback = callback;
@@ -84,10 +90,7 @@ export default class CollisionManager {
 
       for (const tank of this._tanks) {
         if (!tank.isAlive) continue;
-        if (proj.owner === tank) continue; // no self-hits
-        // No friendly fire between units of the same side
-        const of = proj.owner?.faction;
-        if (of && tank.faction && of === tank.faction) continue;
+        if (proj.owner === tank) continue; // no self-hits (friendly fire is live)
 
         hitCenter.set(
           tank.position.x,

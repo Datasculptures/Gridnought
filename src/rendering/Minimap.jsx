@@ -166,6 +166,24 @@ export default function Minimap({
         ctx.stroke();
       }
 
+      // Allied armour — reports its own position, always shown
+      for (const u of (gm?.allyUnits ?? [])) {
+        const t = u.tank;
+        if (!t.isAlive || !inView(t.position.x, t.position.z)) continue;
+        const ax = w2m(t.position.x, cx), az = w2m(t.position.z, cz);
+        const fwd = t.getForwardDirection();
+        ctx.fillStyle = MINIMAP.droneColor;
+        ctx.beginPath();
+        ctx.arc(ax, az, MINIMAP.tankRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = MINIMAP.droneColor;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(ax, az);
+        ctx.lineTo(ax + fwd.x * MINIMAP.tankRadius * 2.2, az + fwd.z * MINIMAP.tankRadius * 2.2);
+        ctx.stroke();
+      }
+
       // Enemy tanks (threat pool) — only inside sensor coverage
       for (const u of (gm?.enemyUnits ?? [])) {
         const enemy = u.tank;

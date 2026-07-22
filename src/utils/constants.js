@@ -661,7 +661,11 @@ export const ALLY = {
   sightRange: 60,
   fireRange: 26,
   fireCooldown: 1.4,
-  cap: 14,              // max live allies in the world
+  cap: 14,              // max live allied troopers in the world
+  // Allied armour — the occasional friendly tank fighting alongside you
+  tankColor: 0x66ccff,
+  tankChance: 0.35,     // chance a squad arrives with armour support
+  maxTanks: 2,
 };
 
 // Anti-tank bollards — big immovable caltrops

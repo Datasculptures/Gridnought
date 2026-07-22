@@ -129,10 +129,13 @@ export default class InfantryUnit {
     }
     const { projectileManager } = ctx;
 
-    // Allies hunt the nearest hostile; enemy infantry hunt the player
-    const target = this.isAlly ? this._findEnemyTarget(ctx) : ctx.playerTank;
+    // Both sides engage whoever is closest — for enemy troops that may be an
+    // allied trooper or tank rather than the player.
     const sight  = this.isAlly ? ALLY.sightRange : INFANTRY.sightRange;
     const range  = this.isAlly ? ALLY.fireRange  : INFANTRY.fireRange;
+    const target = ctx.findHostile
+      ? ctx.findHostile(this, sight * 1.6)
+      : (this.isAlly ? this._findEnemyTarget(ctx) : ctx.playerTank);
 
     if (!target) {
       // Nothing to fight — idle in place
