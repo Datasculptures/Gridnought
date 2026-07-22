@@ -244,12 +244,15 @@ export default class ChunkedTerrain {
 
     for (let vz = 0; vz < N; vz++) {
       for (let vx = 0; vx < N; vx++) {
-        // Flood a cell when any of its corners is submerged channel ground
+        // Flood a cell only when ALL of its corners are submerged. Flooding
+        // on any single corner let the flat surface cut through ground that
+        // stands above the waterline; requiring all four keeps the shoreline
+        // tight to the actual water's edge.
         const c00 = hazard[vz * verts + vx];
         const c10 = hazard[vz * verts + vx + 1];
         const c01 = hazard[(vz + 1) * verts + vx];
         const c11 = hazard[(vz + 1) * verts + vx + 1];
-        if (!(c00 || c10 || c01 || c11)) continue;
+        if (!(c00 && c10 && c01 && c11)) continue;
 
         const x0 = origin.x + vx * CELL_SIZE, x1 = x0 + CELL_SIZE;
         const z0 = origin.z + vz * CELL_SIZE, z1 = z0 + CELL_SIZE;

@@ -135,32 +135,20 @@ export default class Obstacle {
    * tetrahedral arrangement — three splayed down to the ground, one straight
    * up. Built by merging transformed cones into one buffer geometry.
    */
-  _buildCaltropGeometry(w, h) {
-    // Three legs splayed down to the ground plus one spike straight up.
-    // Built so the leg tips land exactly on y=0, then re-centred on the
-    // bounding box because the caller positions meshes at (base + h/2).
-    const L    = w / 2;                 // leg length
-    const tilt = 0.87;                  // ~50° from vertical
-    const hubY = L * Math.cos(tilt);    // hub height that puts tips on the ground
-    const r    = L * 0.15;              // limb thickness
-    const geos = [];
-
-    const limb = (rotX, rotY) => {
-      const g = new THREE.ConeGeometry(r, L, 4);
-      g.translate(0, L / 2, 0);   // base at origin, apex at +L
-      g.rotateX(rotX);
-      g.rotateY(rotY);
-      g.translate(0, hubY, 0);    // lift onto the hub
-      geos.push(g);
-    };
-
-    limb(0, 0);                                    // vertical spike
-    for (let i = 0; i < 3; i++) {                  // splayed legs
-      limb(Math.PI - tilt, (i / 3) * Math.PI * 2);
-    }
-    const hub = new THREE.BoxGeometry(r * 2.4, r * 2.4, r * 2.4);
-    hub.translate(0, hubY, 0);
-    geos.push(hub);
+  /**
+   * Anti-tank "jack" (Czech hedgehog): three square-section beams crossing
+   * through a common centre, giving six points. Centred on its own bounding
+   * cube, so the caller's (base + height/2) placement rests the lower point
+   * on the ground.
+   */
+  _buildCaltropGeometry(w, _h) {
+    const L = w;            // beam length (full span point to point)
+    const t = w * 0.17;     // beam thickness — square section
+    const geos = [
+      new THREE.BoxGeometry(t, L, t),   // vertical
+      new THREE.BoxGeometry(L, t, t),   // lateral
+      new THREE.BoxGeometry(t, t, L),   // longitudinal
+    ];
 
     // Merge manually — avoids a BufferGeometryUtils dependency
     let total = 0;
@@ -174,8 +162,6 @@ export default class Obstacle {
     }
     const merged = new THREE.BufferGeometry();
     merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    // Geometry currently spans y = 0 .. hubY + L; centre it on that span
-    merged.translate(0, -(hubY + L) / 2, 0);
     merged.computeBoundingSphere();
     return merged;
   }
