@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MINELAYER } from '../utils/constants.js';
+import { MINELAYER, MG_HITS_TO_KILL } from '../utils/constants.js';
 import DestructionEffect from '../rendering/DestructionEffect.js';
 
 /**
@@ -20,6 +20,7 @@ export default class MinelayerVehicle {
     this.isAlive     = true;
     this.isDestroyed = false;
     this.isArmoured  = false;
+    this.mgHitsToKill = MG_HITS_TO_KILL; // small arms need a sustained burst
     this._hp         = MINELAYER.hp;
 
     this.kind           = 'minelayer';

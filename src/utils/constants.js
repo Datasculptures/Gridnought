@@ -252,10 +252,20 @@ export const AI = {
   pursuitDistanceTolerance: 10,
   repositionInterval: 5.0,
 
+  // Combat manoeuvring — the hull never parks, it circles while the gun works
+  orbitStep:         0.55,  // radians the orbit goal leads the current bearing
+  orbitFlipInterval: 4.0,   // seconds before reversing the circling direction
+  minStandoff:       14,    // never close inside this while orbiting
+
   // Firing
   aimTolerance: 0.08,
   burstCount: 1,
   postFirePause: 0.5,
+
+  // Line of sight — the gunner checks the ground, not just the obstacles
+  losSampleStep:      3.0,  // world units between terrain samples along the shot
+  losGroundClearance: 0.35, // ground may rise this far into the path before it blocks
+  muzzleHeight:       1.9,  // gun height above the hull, for LOS from a candidate stand
 
   // Movement
   turnThreshold: 0.15,
@@ -561,8 +571,14 @@ export const DRONE = {
 
 // AI hazard avoidance — AI-controlled movers refuse terrain deeper than this
 export const HAZARD = {
-  maxAIDepth: -2.2,     // ravine walls below this height are a no-go for AI
+  maxAIDepth:   -2.2,   // ravine walls below this height are a no-go for AI
+  lookahead:    16,     // units of clear ground an AI driver checks ahead
+  probeSpread:  0.7,    // radians either side when steering around a ravine
 };
+
+// Machine-gun rounds a vehicle or aircraft hull absorbs per point of damage.
+// Soft-skinned support trucks opt out and stay one-shot kills.
+export const MG_HITS_TO_KILL = 4;
 
 // Turret emplacements — immobile enemy tanks
 export const EMPLACEMENT = {

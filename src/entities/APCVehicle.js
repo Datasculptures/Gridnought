@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { APC, MACHINEGUN } from '../utils/constants.js';
+import { APC, MACHINEGUN, MG_HITS_TO_KILL } from '../utils/constants.js';
 import InfantryUnit from './InfantryUnit.js';
 import DestructionEffect from '../rendering/DestructionEffect.js';
 import { WeaponType } from '../weapons/WeaponTypes.js';
@@ -22,6 +22,7 @@ export default class APCVehicle {
     this.isAlive     = true;
     this.isDestroyed = false;
     this.isArmoured  = false;
+    this.mgHitsToKill = MG_HITS_TO_KILL; // small arms need a sustained burst
     this._hp         = APC.hp;
 
     // Unified entity metadata (EntityManager contract)

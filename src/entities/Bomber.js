@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BOMBER, COLORS } from '../utils/constants.js';
+import { BOMBER, COLORS, MG_HITS_TO_KILL } from '../utils/constants.js';
 import DestructionEffect from '../rendering/DestructionEffect.js';
 
 /**
@@ -30,6 +30,7 @@ export default class Bomber {
     this.isAlive     = true;
     this.isDestroyed = false;
     this.isArmoured  = false;
+    this.mgHitsToKill = MG_HITS_TO_KILL; // small arms need a sustained burst
 
     // Unified entity metadata
     this.kind           = 'bomber';

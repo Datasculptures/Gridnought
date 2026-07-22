@@ -8,6 +8,9 @@
  *   hitRadius       number   — projectile hit-sphere radius
  *   scoreValue      number   — points awarded on kill
  *   blocksMovement  boolean  — participates in vehicle-vs-vehicle blocking
+ *   mgHitsToKill    number?  — machine-gun rounds this hull absorbs per point
+ *                              of damage (vehicles and aircraft; soft-skinned
+ *                              support trucks leave it unset)
  *   isAlive         boolean
  *   position        THREE.Vector3
  *   group           THREE.Group|null
@@ -83,7 +86,16 @@ export default class EntityManager {
           proj.kill();
           // Non-penetrating rounds bounce off armoured entities (turrets)
           if (proj.weaponType?.penetrating === false && e.isArmoured) break;
-          const destroyed = e.takeHit((proj.weaponType?.damage ?? 1) * (proj.damageMultiplier ?? 1), true);
+          // Machine-gun fire against a vehicle or aircraft: the hull soaks a
+          // fixed number of rounds before anything gets through, so a plane
+          // can't be swatted down with one lucky burst. The round that trips
+          // the counter is the one that does the damage.
+          if (proj.weaponType?.mg && e.mgHitsToKill > 1) {
+            e._mgSoak = (e._mgSoak ?? 0) + 1;
+            if (e._mgSoak < e.mgHitsToKill) break; // absorbed
+            e._mgSoak = 0;
+          }
+          const destroyed = e.takeHit(this._damageOf(proj, e), true);
           if (destroyed && typeof this._onKill === 'function') {
             try {
               this._onKill(e, proj);
@@ -95,6 +107,17 @@ export default class EntityManager {
         }
       }
     }
+  }
+
+  /**
+   * Damage one projectile delivers to one entity.
+   * A completed machine-gun soak counts as a single point of damage: four
+   * rounds into a hull equal one shell's worth of harm, so a plane goes down
+   * in four and the tougher vehicles take proportionally more.
+   */
+  _damageOf(proj, entity) {
+    if (proj.weaponType?.mg && entity.mgHitsToKill > 1) return 1;
+    return (proj.weaponType?.damage ?? 1) * (proj.damageMultiplier ?? 1);
   }
 
   /** Show/hide alive entities of a faction (jammer flicker effect). */

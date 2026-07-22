@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TRANSPORT, COLORS } from '../utils/constants.js';
+import { TRANSPORT, COLORS, MG_HITS_TO_KILL } from '../utils/constants.js';
 import DestructionEffect from '../rendering/DestructionEffect.js';
 
 /**
@@ -28,6 +28,7 @@ export default class Transport {
     this.isAlive     = true;
     this.isDestroyed = false;
     this.isArmoured  = false;
+    this.mgHitsToKill = MG_HITS_TO_KILL; // small arms need a sustained burst
 
     this.kind           = 'transport';
     this.faction        = 'enemy';

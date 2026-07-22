@@ -3,6 +3,9 @@
  *
  * penetrating: true  → damages armoured targets (tanks).
  * penetrating: false → only damages unarmoured targets (infantry, drones).
+ * mg: true           → small-arms fire. Vehicles and aircraft soak a fixed
+ *   number of these before going down (see mgHitsToKill), so no plane or
+ *   armoured vehicle can be swatted out of the sky with a single burst.
  * range: world-units; projectile is killed when it has travelled this distance.
  */
 export const WeaponType = Object.freeze({
@@ -12,6 +15,7 @@ export const WeaponType = Object.freeze({
     range:       12,
     damage:      1,
     penetrating: false,
+    mg:          true,
   }),
   HEAVY_MG: Object.freeze({
     id:          'HEAVY_MG',
@@ -19,6 +23,7 @@ export const WeaponType = Object.freeze({
     range:       24,
     damage:      1,
     penetrating: false,
+    mg:          true,
   }),
   // Infantry small-arms — chips away at tank armor, slowly
   INFANTRY_MG: Object.freeze({
@@ -27,6 +32,7 @@ export const WeaponType = Object.freeze({
     range:       12,
     damage:      0.4,
     penetrating: true,
+    mg:          true,
   }),
   // Air-dropped bomb — heavy area damage on impact
   BOMB: Object.freeze({
@@ -65,6 +71,7 @@ export const WeaponType = Object.freeze({
     range:       45,
     damage:      0.5,
     penetrating: true,
+    mg:          true,
   }),
   AP_SHELL: Object.freeze({
     id:          'AP_SHELL',
