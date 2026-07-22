@@ -141,13 +141,13 @@ export default class Obstacle {
    * cube, so the caller's (base + height/2) placement rests the lower point
    * on the ground.
    */
-  _buildCaltropGeometry(w, _h) {
+  _buildCaltropGeometry(w, h) {
     const L = w;            // beam length (full span point to point)
     const t = w * 0.17;     // beam thickness — square section
     const geos = [
-      new THREE.BoxGeometry(t, L, t),   // vertical
-      new THREE.BoxGeometry(L, t, t),   // lateral
-      new THREE.BoxGeometry(t, t, L),   // longitudinal
+      new THREE.BoxGeometry(t, L, t),
+      new THREE.BoxGeometry(L, t, t),
+      new THREE.BoxGeometry(t, t, L),
     ];
 
     // Merge manually — avoids a BufferGeometryUtils dependency
@@ -162,6 +162,28 @@ export default class Obstacle {
     }
     const merged = new THREE.BufferGeometry();
     merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+
+    // Tip it onto its side: standing a beam bolt-upright looks like a post,
+    // whereas a real hedgehog lies with its body diagonal vertical so three
+    // beam ends rest on the ground and three point up and outward.
+    const q = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(1, 1, 1).normalize(),
+      new THREE.Vector3(0, 1, 0),
+    );
+    merged.applyQuaternion(q);
+
+    // Normalise: centre on the origin and scale so the vertical span is
+    // exactly `h`, which is what the caller assumes when placing the mesh.
+    merged.computeBoundingBox();
+    const bb = merged.boundingBox;
+    merged.translate(
+      -(bb.min.x + bb.max.x) / 2,
+      -(bb.min.y + bb.max.y) / 2,
+      -(bb.min.z + bb.max.z) / 2,
+    );
+    const span = bb.max.y - bb.min.y;
+    if (span > 0) merged.scale(h / span, h / span, h / span);
+
     merged.computeBoundingSphere();
     return merged;
   }
