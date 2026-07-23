@@ -1,4 +1,6 @@
 import Obstacle from './Obstacle.js';
+import TemplateBuilding from './TemplateBuilding.js';
+import { BUILDING_TEMPLATES, BUILDING_BY_LETTER } from './BuildingTemplates.js';
 import { seededRandom } from './noise.js';
 import { COLLISION, OBSTACLES, SPAWN, CHUNK, CELL_SIZE, CITY, BOLLARD, RUIN } from '../utils/constants.js';
 
@@ -76,15 +78,67 @@ export default class ObstacleManager {
       default: break;
     }
 
+    // Lone buildings dotted through open country (rural landmarks)
+    if (biome !== 'city' && biome !== 'fortress') {
+      this._genLoneBuilding(descriptors, rng, origin, biome);
+    }
+
     // Anti-tank bollard clusters — dragon's teeth guarding open approaches
     this._genBollards(descriptors, rng, origin, center);
 
     const obstacles = [];
     for (const desc of descriptors) {
       if (!desc.skipFilter && !this._placementOk(desc.position.x, desc.position.z)) continue;
-      obstacles.push(new Obstacle(this.scene, desc, this.terrain));
+      if (desc.kind === 'template') {
+        const template = BUILDING_BY_LETTER[desc.templateKey];
+        if (!template) continue;
+        obstacles.push(new TemplateBuilding(this.scene, {
+          template, position: desc.position, rotation: desc.rotation, terrain: this.terrain,
+        }));
+      } else {
+        obstacles.push(new Obstacle(this.scene, desc, this.terrain));
+      }
     }
     this._byChunk.set(key, obstacles);
+  }
+
+  /**
+   * Picks a template for the given city zone whose footprint fits inside the
+   * block, and a rotation (cardinal) that fits. Returns null when nothing in
+   * the pool is small enough — the block is then left as open ground.
+   */
+  _pickTemplate(rng, zone, maxW, maxD) {
+    const pool = BUILDING_TEMPLATES.filter(t => t.zones.includes(zone));
+    if (pool.length === 0) return null;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const t = pool[Math.floor(rng() * pool.length)];
+      const rots = rng() < 0.5 ? [0, Math.PI] : [Math.PI / 2, -Math.PI / 2];
+      for (const rot of rots) {
+        const swap = Math.abs(Math.sin(rot)) > 0.5;
+        const rw = swap ? t.d : t.w;
+        const rd = swap ? t.w : t.d;
+        if (rw <= maxW && rd <= maxD) return { template: t, rotation: rot };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Occasionally drops a single rural template into open country — a farmhouse,
+   * church, silo cluster, or water tower standing alone on the landscape.
+   */
+  _genLoneBuilding(out, rng, origin, biome) {
+    const chance = biome === 'plains' ? 0.18
+      : (biome === 'hills' || biome === 'desert') ? 0.10
+      : biome === 'forest' ? 0.05 : 0.03;
+    if (rng() >= chance) return;
+    const pool = BUILDING_TEMPLATES.filter(t => t.rural);
+    const t    = pool[Math.floor(rng() * pool.length)];
+    out.push({
+      kind: 'template', templateKey: t.letter,
+      position: { x: origin.x + 10 + rng() * (CHUNK.size - 20), z: origin.z + 10 + rng() * (CHUNK.size - 20) },
+      rotation: Math.floor(rng() * 4) * (Math.PI / 2),
+    });
   }
 
 
@@ -231,10 +285,11 @@ export default class ObstacleManager {
   /**
    * City districts on a global street lattice, so streets run straight
    * across chunk borders. Every CITY.avenueEvery-th grid line is a wide
-   * avenue; buildings set back accordingly. Height falls off from the
-   * downtown core (biome cell centre): towers → mid-rise → low outskirts.
-   * Buildings are composed of 1-3 axis-aligned boxes for L-shapes and
-   * podium-plus-tower forms — abstracted but recognisably urban.
+   * avenue; buildings set back accordingly. Each block places one template
+   * building chosen by its distance from the downtown core (biome cell
+   * centre): towers and high-rises downtown, mid-rise civic/residential in
+   * the ring, houses and shops on the outskirts, with the odd industrial
+   * parcel and shelled-out ruin mixed through.
    */
   _genCityBlocks(out, origin) {
     const BLOCK = CITY.blockSize;
@@ -275,68 +330,31 @@ export default class ObstacleManager {
         const midX  = bx * BLOCK + insetW + areaW / 2;
         const midZ  = bz * BLOCK + insetN + areaD / 2;
 
-        const box = (x, z, w, d, ht) => out.push({
-          type: 'cityBlock', position: { x, z }, rotation: 0,
-          dimensions: { width: w, height: ht, depth: d },
-        });
-
         // Empty blocks (plazas/parks) get rarer downtown
         if (rng() < 0.20 - tier * 0.12) continue;
 
-        const maxH = 3 + tier * tier * (CITY.maxHeight - 3);
-
-        // Some blocks are shelled-out ruins instead of intact buildings
+        // Some blocks are shelled-out ruins (garrisonable) instead of intact
         if (rng() < RUIN.chance) {
+          const maxH = 3 + tier * tier * (CITY.maxHeight - 3);
           this._genRuin(out, rng, midX, midZ, areaW, areaD, Math.max(4, maxH * 0.6));
           continue;
         }
 
-        if (tier > 0.6) {
-          // Downtown: podium + offset tower, or a tall slab
-          if (rng() < 0.6) {
-            box(midX, midZ, areaW, areaD, 4 + Math.floor(rng() * 3));      // podium
-            const tw = areaW * (0.45 + rng() * 0.2);
-            const td = areaD * (0.45 + rng() * 0.2);
-            const ox = (rng() - 0.5) * (areaW - tw) * 0.8;
-            const oz = (rng() - 0.5) * (areaD - td) * 0.8;
-            box(midX + ox, midZ + oz, tw, td, maxH * (0.7 + rng() * 0.3)); // tower
-          } else {
-            const slabAlongX = rng() < 0.5;
-            box(midX, midZ,
-              slabAlongX ? areaW : areaW * 0.45,
-              slabAlongX ? areaD * 0.45 : areaD,
-              maxH * (0.6 + rng() * 0.4));
-          }
-        } else if (tier > 0.3) {
-          // Mid-rise ring: L-shapes and paired slabs
-          const hA = 6 + rng() * (maxH - 6);
-          if (rng() < 0.55) {
-            // L-shape: long bar + perpendicular wing
-            const barD = areaD * (0.3 + rng() * 0.15);
-            box(midX, midZ - areaD / 2 + barD / 2, areaW, barD, hA);
-            const wingW = areaW * (0.3 + rng() * 0.15);
-            const side  = rng() < 0.5 ? -1 : 1;
-            box(midX + side * (areaW / 2 - wingW / 2), midZ + barD / 4,
-              wingW, areaD - barD, hA * (0.75 + rng() * 0.25));
-          } else {
-            // Two parallel slabs with a court between
-            const slabD = areaD * 0.32;
-            box(midX, midZ - areaD / 2 + slabD / 2, areaW, slabD, hA);
-            box(midX, midZ + areaD / 2 - slabD / 2, areaW, slabD, 6 + rng() * (maxH - 6));
-          }
-        } else {
-          // Outskirts: one or two low buildings
-          const count = rng() < 0.5 ? 1 : 2;
-          for (let i = 0; i < count; i++) {
-            const w = areaW * (0.3 + rng() * 0.3);
-            const d = areaD * (0.3 + rng() * 0.3);
-            box(
-              midX + (rng() - 0.5) * (areaW - w),
-              midZ + (rng() - 0.5) * (areaD - d),
-              w, d, 3 + rng() * 5,
-            );
-          }
-        }
+        // Choose a district zone from the tier, with the odd industrial parcel
+        let zone;
+        if (rng() < 0.14)        zone = 'ind';
+        else if (tier > 0.6)     zone = rng() < 0.75 ? 'core' : 'mid';
+        else if (tier > 0.3)     zone = rng() < 0.7  ? 'mid'  : 'low';
+        else                     zone = 'low';
+
+        const pick = this._pickTemplate(rng, zone, areaW + 3, areaD + 3)
+          || this._pickTemplate(rng, 'low', areaW + 3, areaD + 3);
+        if (!pick) continue; // nothing fits — leave the block open
+
+        out.push({
+          kind: 'template', templateKey: pick.template.letter,
+          position: { x: midX, z: midZ }, rotation: pick.rotation,
+        });
       }
     }
   }
