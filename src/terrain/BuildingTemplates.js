@@ -617,7 +617,7 @@ export const BUILDING_TEMPLATES = [
   { letter: 'D', name: 'APARTMENT BLOCK',build: buildApartment,      labelY: 20, w: 9,    d: 9,  h: 18,  zones: ['mid', 'core'], rural: false, damaged: false },
   { letter: 'E', name: 'OFFICE TOWER',   build: buildTower,          labelY: 34, w: 11,   d: 10, h: 31,  zones: ['core'],        rural: false, damaged: false },
   { letter: 'F', name: 'CHURCH',         build: buildChurch,         labelY: 18, w: 13,   d: 16, h: 16,  zones: ['low', 'mid'],  rural: true,  damaged: false },
-  { letter: 'G', name: 'WAREHOUSE ✷ DAMAGED', build: buildWarehouse, labelY: 15, w: 14,   d: 11, h: 12,  zones: ['ind', 'low'],  rural: true,  damaged: true  },
+  { letter: 'G', name: 'WAREHOUSE ✷ DAMAGED', build: buildWarehouse, labelY: 15, w: 14,   d: 11, h: 12,  zones: ['ind', 'low'],  rural: false, damaged: true  },
   { letter: 'H', name: 'WATER TOWER',    build: buildWaterTower,     labelY: 16, w: 7,    d: 7,  h: 14,  zones: ['ind'],         rural: true,  damaged: false },
   { letter: 'I', name: 'PARKING GARAGE', build: buildGarage,         labelY: 11, w: 11,   d: 9,  h: 9,   zones: ['mid', 'ind'],  rural: false, damaged: false },
   { letter: 'J', name: 'GRAIN SILOS',    build: buildSilos,          labelY: 16, w: 14,   d: 4,  h: 14,  zones: ['ind'],         rural: true,  damaged: false },
@@ -629,11 +629,11 @@ export const BUILDING_TEMPLATES = [
   { letter: 'P', name: 'FACTORY',        build: buildFactory,        labelY: 16, w: 14,   d: 10, h: 13,  zones: ['ind'],         rural: true,  damaged: false },
   { letter: 'Q', name: 'COOLING TOWER',  build: buildCoolingTower,   labelY: 22, w: 9.2,  d: 9.2,h: 19,  zones: ['ind'],         rural: false, damaged: false },
   { letter: 'R', name: 'SCHOOL',         build: buildSchool,         labelY: 11, w: 16,   d: 8,  h: 9.4, zones: ['mid', 'low'],  rural: false, damaged: false },
-  { letter: 'S', name: 'RUINED HOUSE ✷',    build: buildRuinedHouse,   labelY: 6,  w: 7,   d: 6,  h: 4,   zones: ['low'],         rural: true,  damaged: true },
-  { letter: 'T', name: 'RUINED CHURCH ✷',   build: buildRuinedChurch,  labelY: 13, w: 8,   d: 16, h: 10,  zones: ['mid', 'low'],  rural: true,  damaged: true },
+  { letter: 'S', name: 'RUINED HOUSE ✷',    build: buildRuinedHouse,   labelY: 6,  w: 7,   d: 6,  h: 4,   zones: ['low'],         rural: false, damaged: true },
+  { letter: 'T', name: 'RUINED CHURCH ✷',   build: buildRuinedChurch,  labelY: 13, w: 8,   d: 16, h: 10,  zones: ['mid', 'low'],  rural: false, damaged: true },
   { letter: 'U', name: 'GUTTED TOWER ✷',    build: buildGuttedTower,   labelY: 23, w: 9,   d: 9,  h: 20,  zones: ['core', 'mid'], rural: false, damaged: true },
   { letter: 'V', name: 'COLLAPSED SHOP ✷',  build: buildCollapsedShop, labelY: 7,  w: 10,  d: 8,  h: 5,   zones: ['low', 'mid'],  rural: false, damaged: true },
-  { letter: 'W', name: 'BURNT FACTORY ✷',   build: buildBurntFactory,  labelY: 15, w: 13,  d: 10, h: 12,  zones: ['ind'],         rural: true,  damaged: true },
+  { letter: 'W', name: 'BURNT FACTORY ✷',   build: buildBurntFactory,  labelY: 15, w: 13,  d: 10, h: 12,  zones: ['ind'],         rural: false, damaged: true },
   { letter: 'X', name: 'RUBBLE HEAP ✷',     build: buildRubbleHeap,    labelY: 6,  w: 8,   d: 8,  h: 4,   zones: ['low', 'mid'],  rural: false, damaged: true },
 ];
 
