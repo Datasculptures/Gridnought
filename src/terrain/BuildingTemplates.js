@@ -92,7 +92,9 @@ function makeKit() {
       const a = cols === 1 ? (a0 + a1) / 2 : a0 + (a1 - a0) * (c / (cols - 1));
       for (let r = 0; r < rows; r++) {
         const y = rows === 1 ? (y0 + y1) / 2 : y0 + (y1 - y0) * (r / (rows - 1));
-        if (axis === 'z') box(ww, wh, t, faceCoord === 0 ? 0 : faceCoord, y, a, 0, false);
+        // 'z' facade: panes range along X (a) at fixed Z (faceCoord).
+        // 'x' facade: panes range along Z (a) at fixed X (faceCoord).
+        if (axis === 'z') box(ww, wh, t, a, y, faceCoord, 0, false);
         else box(t, wh, ww, faceCoord, y, a, 0, false);
       }
     }
