@@ -95,6 +95,11 @@ export default class ObstacleManager {
         obstacles.push(new TemplateBuilding(this.scene, {
           template, position: desc.position, rotation: desc.rotation, terrain: this.terrain,
         }));
+        // Damaged buildings are held by defenders, just like the old ruins —
+        // GameManager garrisons anything recorded here on chunk load.
+        if (template.damaged) {
+          this.ruins.push({ x: desc.position.x, z: desc.position.z, floors: [] });
+        }
       } else {
         obstacles.push(new Obstacle(this.scene, desc, this.terrain));
       }
@@ -108,9 +113,18 @@ export default class ObstacleManager {
    * the pool is small enough — the block is then left as open ground.
    */
   _pickTemplate(rng, zone, maxW, maxD) {
-    const pool = BUILDING_TEMPLATES.filter(t => t.zones.includes(zone));
+    return this._pickFrom(rng, BUILDING_TEMPLATES.filter(t => t.zones.includes(zone)), maxW, maxD);
+  }
+
+  /** Picks a damaged (ruin) template that fits — replaces the old procedural ruins. */
+  _pickDamaged(rng, maxW, maxD) {
+    return this._pickFrom(rng, BUILDING_TEMPLATES.filter(t => t.damaged), maxW, maxD);
+  }
+
+  /** Picks a template from `pool` and a cardinal rotation whose footprint fits. */
+  _pickFrom(rng, pool, maxW, maxD) {
     if (pool.length === 0) return null;
-    for (let attempt = 0; attempt < 6; attempt++) {
+    for (let attempt = 0; attempt < 8; attempt++) {
       const t = pool[Math.floor(rng() * pool.length)];
       const rots = rng() < 0.5 ? [0, Math.PI] : [Math.PI / 2, -Math.PI / 2];
       for (const rot of rots) {
@@ -141,76 +155,6 @@ export default class ObstacleManager {
     });
   }
 
-
-  /**
-   * A shelled-out building: fragments of exterior wall with gaps blown
-   * through them, a couple of interior partition stubs, and partial floor
-   * slabs left hanging at storey heights. Infantry can shelter inside, and
-   * the gaps give the player firing lanes through the shell.
-   *
-   * Records the ruin's footprint on `this.ruins` so GameManager can garrison
-   * it when the chunk loads.
-   */
-  _genRuin(out, rng, cx, cz, areaW, areaD, height) {
-    const storeys = Math.max(1, Math.round(height / RUIN.storeyHeight));
-    const hw = areaW / 2, hd = areaD / 2;
-    const T = 0.5; // wall thickness
-
-    // Exterior walls, broken into segments with missing pieces
-    const wallRun = (along, fixed, horizontal, len) => {
-      const pieces = 3;
-      for (let i = 0; i < pieces; i++) {
-        if (rng() > RUIN.wallChance) continue; // blown out
-        const seg = len / pieces;
-        const o   = (i - (pieces - 1) / 2) * seg;
-        const h   = height * (0.35 + rng() * 0.65); // jagged tops
-        out.push({
-          type: 'cityBlock', rotation: 0,
-          position: horizontal ? { x: along + o, z: fixed } : { x: fixed, z: along + o },
-          dimensions: horizontal
-            ? { width: seg * 0.92, height: h, depth: T }
-            : { width: T, height: h, depth: seg * 0.92 },
-        });
-      }
-    };
-    wallRun(cx, cz - hd, true,  areaW);
-    wallRun(cx, cz + hd, true,  areaW);
-    wallRun(cz, cx - hw, false, areaD);
-    wallRun(cz, cx + hw, false, areaD);
-
-    // Interior partition stubs
-    for (let i = 0; i < 2; i++) {
-      if (rng() > 0.7) continue;
-      const vertical = rng() < 0.5;
-      const h = height * (0.3 + rng() * 0.4);
-      out.push({
-        type: 'cityBlock', rotation: 0,
-        position: { x: cx + (rng() - 0.5) * areaW * 0.5, z: cz + (rng() - 0.5) * areaD * 0.5 },
-        dimensions: vertical
-          ? { width: T, height: h, depth: areaD * (0.25 + rng() * 0.3) }
-          : { width: areaW * (0.25 + rng() * 0.3), height: h, depth: T },
-      });
-    }
-
-    // Partial floor slabs hanging at storey heights
-    const floors = [];
-    for (let s = 1; s < storeys; s++) {
-      if (rng() > RUIN.floorChance) continue;
-      const fy = s * RUIN.storeyHeight;
-      const fw = areaW * (0.4 + rng() * 0.45);
-      const fd = areaD * (0.4 + rng() * 0.45);
-      const fx = cx + (rng() - 0.5) * (areaW - fw);
-      const fz = cz + (rng() - 0.5) * (areaD - fd);
-      out.push({
-        type: 'cityBlock', rotation: 0, baseY: this.terrain.getHeightAt(fx, fz) + fy,
-        position: { x: fx, z: fz },
-        dimensions: { width: fw, height: 0.3, depth: fd },
-      });
-      floors.push({ x: fx, z: fz, y: fy });
-    }
-
-    this.ruins.push({ x: cx, z: cz, floors });
-  }
 
   /**
    * Anti-tank bollards: short lines of caltrops laid across open ground,
@@ -333,10 +277,15 @@ export default class ObstacleManager {
         // Empty blocks (plazas/parks) get rarer downtown
         if (rng() < 0.20 - tier * 0.12) continue;
 
-        // Some blocks are shelled-out ruins (garrisonable) instead of intact
+        // Some blocks are ruins — a shelled-out building model from the set
         if (rng() < RUIN.chance) {
-          const maxH = 3 + tier * tier * (CITY.maxHeight - 3);
-          this._genRuin(out, rng, midX, midZ, areaW, areaD, Math.max(4, maxH * 0.6));
+          const ruin = this._pickDamaged(rng, areaW + 3, areaD + 3);
+          if (ruin) {
+            out.push({
+              kind: 'template', templateKey: ruin.template.letter,
+              position: { x: midX, z: midZ }, rotation: ruin.rotation,
+            });
+          }
           continue;
         }
 

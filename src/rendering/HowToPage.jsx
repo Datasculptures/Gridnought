@@ -139,8 +139,8 @@ export default function HowToPage({ visible, onBack }) {
     scene.background = new THREE.Color(0x000000);
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
 
-    const gridSize = 190;
-    const grid = new THREE.GridHelper(gridSize, 76, 0x00aa00, 0x004400);
+    const gridSize = 230;
+    const grid = new THREE.GridHelper(gridSize, 92, 0x00aa00, 0x004400);
     scene.add(grid);
 
     // Everything that needs tearing down: game entities expose dispose(),
@@ -257,11 +257,11 @@ export default function HowToPage({ visible, onBack }) {
     // A two-sided street the visitor can walk down; each template is lettered
     // A–L so the good ones can be called out and wired into the world.
     const streetX = -64;
-    const rowZ    = [-64, -48, -32, -16, 0, 16, 32, 48, 64];
+    const rowZ    = [-88, -72, -56, -40, -24, -8, 8, 24, 40, 56, 72, 88];
     const byLetter = Object.fromEntries(BUILDING_TEMPLATES.map(t => [t.letter, t]));
     const districtRows = [
-      { x: streetX - 14, ry:  Math.PI / 2, letters: ['A', 'C', 'D', 'K', 'F', 'J', 'M', 'O', 'Q'] }, // west curb, faces east
-      { x: streetX + 14, ry: -Math.PI / 2, letters: ['B', 'G', 'I', 'E', 'L', 'H', 'N', 'P', 'R'] }, // east curb, faces west
+      { x: streetX - 14, ry:  Math.PI / 2, letters: ['A', 'C', 'D', 'K', 'F', 'J', 'M', 'O', 'Q', 'S', 'U', 'W'] }, // west curb, faces east
+      { x: streetX + 14, ry: -Math.PI / 2, letters: ['B', 'G', 'I', 'E', 'L', 'H', 'N', 'P', 'R', 'T', 'V', 'X'] }, // east curb, faces west
     ];
     for (const row of districtRows) {
       row.letters.forEach((letter, i) => {

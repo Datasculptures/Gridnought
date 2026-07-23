@@ -474,7 +474,140 @@ function buildSchool() {
 }
 
 // ---------------------------------------------------------------------------
-// Registry — A … R (footprint w×d, height h, city zones, rural/damaged tags)
+// S — RUINED HOUSE  (roof caved in, one wall gone, interior open)
+// ---------------------------------------------------------------------------
+function buildRuinedHouse() {
+  const K = makeKit();
+  const W = 7, D = 6, wall = 3.4, T = 0.4;
+  const hw = W / 2, hd = D / 2;
+  K.box(W, 0.3, D, 0, 0.15, 0, 0, false);            // floor slab
+  K.box(W, wall, T, 0, wall / 2, -hd);               // back wall
+  K.box(T, wall, D, -hw, wall / 2, 0);               // left wall
+  K.box(T, 1.4, D * 0.6, hw, 0.7, -1.2);             // right wall, blown to a stub
+  K.box(T, 2.8, T, -hw, 1.4, hd);                    // front-left corner post (rest gone)
+  K.gable(W, 1.3, T, 0, wall, -hd, 0, false);        // surviving gable on the back
+  K.strut(W * 0.9, 0.2, D * 0.85, -0.3, 2.5, -0.2, 0.5, 0.12); // collapsed roof pitched in
+  K.box(0.6, 2.6, 0.6, hw - 1.2, 1.3, -hd + 0.6);    // cracked chimney
+  K.box(2.2, 0.8, 2.0, 0.8, 0.4, 0.9);               // rubble
+  K.cone(1.1, 1.3, -0.9, 0.65, 1.2, 5);
+  K.windows('z', -hd - 0.03, -1.6, 1.6, 1.9, 1.9, 2, 1, 0.9, 1.1); // blown-out windows
+  return built(K);
+}
+
+// ---------------------------------------------------------------------------
+// T — RUINED CHURCH  (roofless nave, broken bell tower)
+// ---------------------------------------------------------------------------
+function buildRuinedChurch() {
+  const K = makeKit();
+  const naveW = 7, T = 0.4, hw = naveW / 2;
+  K.box(naveW, 0.3, 12, 0, 0.15, -1, 0, false);      // nave floor (z -7..5)
+  // Left nave wall — jagged segments of differing height
+  [[-5, 5.2], [-1, 3.4], [3, 4.6]].forEach(([z, h]) => K.box(T, h, 3.4, -hw, h / 2, z));
+  // Right nave wall — a segment blown out (gap in the middle)
+  [[-5, 4.8], [3, 4.2]].forEach(([z, h]) => K.box(T, h, 3.4, hw, h / 2, z));
+  K.box(naveW, 4.4, T, 0, 2.2, -7);                  // apse (back) wall
+  K.windows('x', -hw - 0.03, -5, 3, 3.0, 3.0, 3, 1, 0.6, 3.2); // tall window frames
+  // Bell tower at the front, its crown broken away to jagged stubs
+  K.box(3.6, 8, 3.6, 0, 4, 6.5);
+  K.box(0.5, 1.6, 0.5, 1.3, 8.8, 7.6);
+  K.box(0.5, 0.9, 0.5, -1.3, 8.45, 5.4);
+  K.box(0.5, 1.2, 0.5, 1.3, 8.6, 5.4);
+  K.box(2.4, 0.9, 2.2, 0, 0.45, -1);                 // rubble in the nave
+  K.cone(1.2, 1.4, -1.2, 0.7, 1.6, 5);
+  return built(K);
+}
+
+// ---------------------------------------------------------------------------
+// U — GUTTED TOWER  (skeletal high-rise, floor slabs bared, sheared top)
+// ---------------------------------------------------------------------------
+function buildGuttedTower() {
+  const K = makeKit();
+  const W = 8, D = 8, storeys = 6, sh = 3.2, T = 0.4;
+  const hw = W / 2, hd = D / 2, H = storeys * sh;
+  K.box(W + 1, 0.4, D + 1, 0, 0.2, 0, 0, false);     // debris apron
+  // Corner columns sheared to different heights
+  const colH = [H, H * 0.82, H * 0.6, H * 0.9];
+  [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].forEach(([cx, cz], i) =>
+    K.box(0.6, colH[i], 0.6, cx, colH[i] / 2, cz));
+  K.box(2.6, H * 0.95, 2.6, -1, H * 0.95 / 2, -1);   // surviving lift core
+  // Exposed floor slabs, shrinking and more broken with height
+  for (let s = 1; s <= storeys; s++) {
+    const fy = s * sh, frac = Math.max(0.35, 1 - s * 0.11);
+    K.box(W * frac, 0.22, D * frac, -hw + (W * frac) / 2, fy, -hd + (D * frac) / 2, 0, false);
+  }
+  // Remnant wall panels, fewer up high
+  K.box(W * 0.5, sh * 2, T, -1.5, sh, -hd);
+  K.box(T, sh * 1.5, D * 0.4, -hw, sh * 0.75, 1.5);
+  K.box(W * 0.35, sh, T, 2.0, sh * 2.5, hd);
+  K.box(3, 1.0, 2.4, 2, 0.5, 2);                     // rubble base
+  K.cone(1.4, 1.8, 2.6, 0.9, -2.2, 5);
+  return built(K);
+}
+
+// ---------------------------------------------------------------------------
+// V — COLLAPSED SHOPFRONT  (facade down, roof half-fallen)
+// ---------------------------------------------------------------------------
+function buildCollapsedShop() {
+  const K = makeKit();
+  const W = 10, D = 7, wall = 4, T = 0.4;
+  const hw = W / 2, hd = D / 2;
+  K.box(W, 0.3, D, 0, 0.15, 0, 0, false);
+  K.box(W, wall, T, 0, wall / 2, -hd);               // back wall
+  K.box(T, wall, D, -hw, wall / 2, 0);               // left wall
+  K.box(T, wall * 0.6, D, hw, wall * 0.3, 0);        // right wall, half down
+  K.strut(W * 0.7, 0.9, 0.4, -1, 3.2, hd, 0.2, 0.1); // remnant parapet, tilting out
+  K.strut(W * 0.9, 0.2, D * 0.55, 0, 3.6, -1.4, 0.3, 0); // roof half fallen inward
+  K.strut(6, 1.0, 0.3, 0, 1.1, hd + 1.2, 1.2, 0);    // fallen signband
+  K.box(3, 1.0, 1.2, -1, 0.5, -1.5);                 // counter
+  K.box(2.4, 0.8, 2.0, 1.5, 0.4, 1.2);               // rubble
+  K.cone(1.1, 1.3, -2, 0.65, 1.5, 5);
+  K.windows('z', -hd - 0.03, -3, 3, 2.4, 2.4, 3, 1, 1.0, 1.4);
+  return built(K);
+}
+
+// ---------------------------------------------------------------------------
+// W — BURNT FACTORY  (roof gone, jagged walls, cracked leaning chimney)
+// ---------------------------------------------------------------------------
+function buildBurntFactory() {
+  const K = makeKit();
+  const W = 13, D = 10, T = 0.4;
+  const hw = W / 2, hd = D / 2;
+  K.box(W, 0.4, D, 0, 0.2, 0, 0, false);
+  [[-4, 5], [0, 3.4], [4, 4.6]].forEach(([x, h]) => K.box(4, h, T, x, h / 2, -hd)); // back
+  [[-3, 4.6], [3, 3.0]].forEach(([z, h]) => K.box(T, h, 4, -hw, h / 2, z));         // left
+  [[-3, 3.4], [3, 4.8]].forEach(([z, h]) => K.box(T, h, 4, hw, h / 2, z));          // right
+  K.box(3, 4.2, T, -5, 2.1, hd);                     // front piers flanking an open bay
+  K.box(2.5, 4.2, T, 5.2, 2.1, hd);
+  K.strut(W * 0.9, 0.2, 0.4, 0, 4.8, -2.5, 0.05, 0); // remnant roof trusses
+  K.strut(6, 0.2, 0.4, -2, 3.8, 2.5, 0.25, 0);
+  K.strut(1.4, 11, 1.4, -hw + 1.5, 5.5, -hd + 1.2, 0.06, 0.05); // leaning chimney
+  K.collider(1.6, 11, 1.6, -hw + 1.5, 5.5, -hd + 1.2);
+  K.box(3, 1.1, 2.4, 1, 0.55, 0);                    // rubble
+  K.cone(1.4, 1.7, -2, 0.85, 0.5, 5);
+  return built(K);
+}
+
+// ---------------------------------------------------------------------------
+// X — RUBBLE HEAP  (mostly flattened — a mound with a few standing fragments)
+// ---------------------------------------------------------------------------
+function buildRubbleHeap() {
+  const K = makeKit();
+  const W = 8, D = 8;
+  K.box(W, 0.3, D, 0, 0.15, 0, 0, false);
+  K.box(0.4, 2.8, 3.0, -3.2, 1.4, -1.5);             // standing wall fragments
+  K.box(3.4, 2.0, 0.4, -1.0, 1.0, -3.4);
+  K.box(0.4, 1.6, 2.0, 3.0, 0.8, 1.0);
+  K.box(3.4, 1.4, 3.0, 0.5, 0.7, 0.5);               // rubble mound
+  K.box(2.4, 1.0, 2.0, -1.0, 1.4, -0.5);
+  K.cone(1.6, 2.0, 0.8, 1.4, 0.6, 5);
+  K.cone(1.1, 1.4, -1.6, 0.7, 1.6, 5);
+  K.strut(0.25, 3.2, 0.25, 2.2, 1.4, -1.0, 0.3, 0.2); // bent rebar
+  K.strut(3.0, 0.2, 1.6, -0.5, 1.8, -1.2, 0.4, 0.1);  // tilted slab shard
+  return built(K);
+}
+
+// ---------------------------------------------------------------------------
+// Registry — A … X (footprint w×d, height h, city zones, rural/damaged tags)
 // ---------------------------------------------------------------------------
 
 export const BUILDING_TEMPLATES = [
@@ -496,6 +629,12 @@ export const BUILDING_TEMPLATES = [
   { letter: 'P', name: 'FACTORY',        build: buildFactory,        labelY: 16, w: 14,   d: 10, h: 13,  zones: ['ind'],         rural: true,  damaged: false },
   { letter: 'Q', name: 'COOLING TOWER',  build: buildCoolingTower,   labelY: 22, w: 9.2,  d: 9.2,h: 19,  zones: ['ind'],         rural: false, damaged: false },
   { letter: 'R', name: 'SCHOOL',         build: buildSchool,         labelY: 11, w: 16,   d: 8,  h: 9.4, zones: ['mid', 'low'],  rural: false, damaged: false },
+  { letter: 'S', name: 'RUINED HOUSE ✷',    build: buildRuinedHouse,   labelY: 6,  w: 7,   d: 6,  h: 4,   zones: ['low'],         rural: true,  damaged: true },
+  { letter: 'T', name: 'RUINED CHURCH ✷',   build: buildRuinedChurch,  labelY: 13, w: 8,   d: 16, h: 10,  zones: ['mid', 'low'],  rural: true,  damaged: true },
+  { letter: 'U', name: 'GUTTED TOWER ✷',    build: buildGuttedTower,   labelY: 23, w: 9,   d: 9,  h: 20,  zones: ['core', 'mid'], rural: false, damaged: true },
+  { letter: 'V', name: 'COLLAPSED SHOP ✷',  build: buildCollapsedShop, labelY: 7,  w: 10,  d: 8,  h: 5,   zones: ['low', 'mid'],  rural: false, damaged: true },
+  { letter: 'W', name: 'BURNT FACTORY ✷',   build: buildBurntFactory,  labelY: 15, w: 13,  d: 10, h: 12,  zones: ['ind'],         rural: true,  damaged: true },
+  { letter: 'X', name: 'RUBBLE HEAP ✷',     build: buildRubbleHeap,    labelY: 6,  w: 8,   d: 8,  h: 4,   zones: ['low', 'mid'],  rural: false, damaged: true },
 ];
 
 /** Templates keyed by their letter, for O(1) lookup during world generation. */
