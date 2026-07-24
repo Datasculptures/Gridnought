@@ -466,7 +466,7 @@ export const SCORE = {
   // Kept in React state; these are just display defaults
   initial: 0,
   enemyTank: 10,          // points for destroying the enemy tank
-  highScoreKey: 'wirezone_highscores',
+  highScoreKey: 'gridnought_highscores',
   highScoreCount: 10,
 };
 

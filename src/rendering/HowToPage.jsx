@@ -453,7 +453,7 @@ export default function HowToPage({ visible, onBack }) {
         position: 'absolute', right: 16, bottom: 14, color: '#008800',
         fontFamily: 'monospace', fontSize: 11, letterSpacing: 2, pointerEvents: 'none',
       }}>
-        WIREZONE v{APP.version} — {APP.date}
+        GRIDNOUGHT v{APP.version} — {APP.date}
       </div>
 
       <button className="wireframe-btn" onClick={onBack} style={{ position: 'absolute', left: 16, bottom: 14 }}>

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    wirezone_lib::run()
+    gridnought_lib::run()
 }

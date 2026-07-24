@@ -1,12 +1,12 @@
 [package]
-name = "wirezone"
+name = "gridnought"
 version = "0.1.0"
-description = "WIREZONE — wireframe tank combat"
+description = "GRIDNOUGHT — wireframe tank combat"
 authors = ["Sean"]
 edition = "2021"
 
 [lib]
-name = "wirezone_lib"
+name = "gridnought_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

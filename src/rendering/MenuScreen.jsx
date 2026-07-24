@@ -59,7 +59,7 @@ export default function MenuScreen({ gameState, onResume, onStart, onQuit, onHow
           marginBottom: 8,
         }}
       >
-        WIREZONE
+        GRIDNOUGHT
       </div>
       <div style={{ color: '#00aa00', fontSize: 13, marginBottom: 28 }}>
         {paused ? 'PAUSED' : 'WIREFRAME TANK COMBAT — INFINITE WORLD'}
