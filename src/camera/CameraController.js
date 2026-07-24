@@ -97,8 +97,11 @@ export default class CameraController {
       //     looking along the turret's aim direction ---
       const tank    = this.playerTank;
       const tankPos = tank.group.position;
-      const aimYaw  = tank.heading + tank.turretAngle; // turret world yaw
-      const elev    = tank.getViewElevation ? tank.getViewElevation() : 0;
+      // Chassis-specific eye height + walk sway (the walker rocks with its gait)
+      const eyeOff  = tank.getEyeOffset ? tank.getEyeOffset() : 2.35;
+      const bob     = tank.getViewBob ? tank.getViewBob() : null;
+      const aimYaw  = tank.heading + tank.turretAngle + (bob?.dyaw || 0); // turret world yaw
+      const elev    = (tank.getViewElevation ? tank.getViewElevation() : 0) + (bob?.dpitch || 0);
 
       const sinY = Math.sin(aimYaw);
       const cosY = Math.cos(aimYaw);
@@ -107,7 +110,7 @@ export default class CameraController {
 
       // Eye: above the turret, nudged back so the barrel base stays in frame
       const eyeX = tankPos.x - sinY * 1.0;
-      const eyeY = tankPos.y + 2.35;
+      const eyeY = tankPos.y + eyeOff + (bob?.dy || 0);
       const eyeZ = tankPos.z - cosY * 1.0;
 
       this.camera.position.set(eyeX, eyeY, eyeZ);
@@ -116,6 +119,8 @@ export default class CameraController {
         eyeY + sinE * 20,
         eyeZ + cosY * cosE * 20,
       );
+      // Subtle roll so the horizon tips with each stride
+      if (bob?.droll) this.camera.rotateZ(bob.droll);
       return; // skip spherical orbit update below
 
     } else {

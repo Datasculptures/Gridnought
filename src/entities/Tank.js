@@ -133,6 +133,33 @@ export default class Tank {
   }
 
   // ---------------------------------------------------------------------------
+  // Chassis hooks — the walker (PlayerMech) overrides these; for the tank they
+  // reproduce the original inline behaviour exactly.
+  // ---------------------------------------------------------------------------
+
+  /** Movement-validation flags: deep-ravine avoidance + steep-slope exemption. */
+  _movementFlags() {
+    return {
+      avoidDeep:  !this.inputManager,
+      relaxSlope: !!this.aiController?.commands?.escaping,
+    };
+  }
+
+  /** World Y the chassis rests at for the current position (ground clamp). */
+  _supportHeight() {
+    return this.terrain.getHeightAt(this.position.x, this.position.z) + TANK.groundOffset;
+  }
+
+  /** Per-frame visual hook (leg articulation, body sway) — no-op for tanks. */
+  _postUpdate(_delta) {}
+
+  /** First-person eye height above the chassis ground point. */
+  getEyeOffset() { return 2.35; }
+
+  /** Optional {dy,dyaw,dpitch,droll} camera sway; null for tanks. */
+  getViewBob() { return null; }
+
+  // ---------------------------------------------------------------------------
   // Mesh construction
   // ---------------------------------------------------------------------------
 
@@ -450,24 +477,22 @@ export default class Tank {
     // 7. Movement validation — wall-slide on rejection (vehicle blocking skips slide)
     // AI tanks refuse ravine terrain; the player may risk it. A tank actively
     // climbing out of a hazard gets the steep-slope exemption.
-    const avoidDeep = !this.inputManager;
-    const escaping  = !!this.aiController?.commands?.escaping;
+    const { avoidDeep, relaxSlope } = this._movementFlags();
     const vBlocked = this.movementValidator.isVehicleBlocked(newX, newZ, this);
-    const check    = this.movementValidator.canMoveTo(fromX, fromZ, newX, newZ, avoidDeep, escaping);
+    const check    = this.movementValidator.canMoveTo(fromX, fromZ, newX, newZ, avoidDeep, relaxSlope);
     if (check.allowed && !vBlocked) {
       this.position.x = newX;
       this.position.z = newZ;
     } else if (!vBlocked) {
-      const checkX = this.movementValidator.canMoveTo(fromX, fromZ, newX, fromZ, avoidDeep, escaping);
-      const checkZ = this.movementValidator.canMoveTo(fromX, fromZ, fromX, newZ, avoidDeep, escaping);
+      const checkX = this.movementValidator.canMoveTo(fromX, fromZ, newX, fromZ, avoidDeep, relaxSlope);
+      const checkZ = this.movementValidator.canMoveTo(fromX, fromZ, fromX, newZ, avoidDeep, relaxSlope);
       if (checkX.allowed) this.position.x = newX;
       if (checkZ.allowed) this.position.z = newZ;
       // Do NOT zero speed — keep it so the player can reverse out immediately
     }
 
-    // 8. Ground clamping
-    this.position.y = this.terrain.getHeightAt(this.position.x, this.position.z)
-                    + TANK.groundOffset;
+    // 8. Ground clamping (chassis-specific — walker bridges ravines)
+    this.position.y = this._supportHeight();
 
     // 9 + 10. Terrain orientation + position
     this._applyTransform();
@@ -579,6 +604,9 @@ export default class Tank {
     if (this.aiController) {
       this.aiController.commands.fire = false;
     }
+
+    // 14. Chassis visuals (walker leg articulation + body/view sway)
+    this._postUpdate(delta);
   }
 
   // ---------------------------------------------------------------------------

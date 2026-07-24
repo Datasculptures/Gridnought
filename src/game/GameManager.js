@@ -10,6 +10,7 @@ import MovementValidator from '../physics/MovementValidator.js';
 import CollisionManager from '../physics/CollisionManager.js';
 import ObstacleManager from '../terrain/ObstacleManager.js';
 import Tank from '../entities/Tank.js';
+import PlayerMech from '../entities/PlayerMech.js';
 import ProjectileManager from '../entities/ProjectileManager.js';
 import AIController from '../ai/AIController.js';
 import InfantryUnit from '../entities/InfantryUnit.js';
@@ -148,7 +149,8 @@ export class GameManager {
     // Movement validator — obstacle-aware
     this.movementValidator = new MovementValidator(this.terrain, this.obstacleManager);
 
-    // Player tank
+    // Player vehicle — starts as the tank; the menu can swap it to the walker
+    this.playerVehicleType = 'tank';
     this.playerTank = new Tank(this.scene, {
       position: SPAWN.player,
       color: COLORS.playerTank,
@@ -375,7 +377,43 @@ export class GameManager {
    * Begins a round from the start menu — resets tanks and AI on the current
    * terrain (no regen). Obstacles from init() remain in place.
    */
-  startRound() {
+  /**
+   * Swaps the player chassis between the tank and the walker, re-wiring every
+   * system that holds a reference. Safe to call before a round starts;
+   * regenerateTerrain() (run by startRound) then resets it onto fresh terrain.
+   * @param {'tank'|'mech'} type
+   */
+  setPlayerVehicle(type) {
+    const target = type === 'mech' ? 'mech' : 'tank';
+    if (this.playerTank && this.playerVehicleType === target) return;
+
+    if (this.playerTank) {
+      this.collisionManager.unregisterTank(this.playerTank);
+      this.playerTank.dispose();
+    }
+
+    const Chassis = target === 'mech' ? PlayerMech : Tank;
+    this.playerTank = new Chassis(this.scene, {
+      position: SPAWN.player,
+      color: COLORS.playerTank,
+      terrain: this.terrain,
+      inputManager: this.inputManager,
+      movementValidator: this.movementValidator,
+    });
+
+    // Re-wire the systems that were bound to the old instance in init()
+    this.playerTank.setAimDependencies(this.camera, this.projectileManager);
+    this.playerTank.effectsManager   = this.effectsManager;
+    this.playerTank.soundManager     = this.soundManager;
+    this.playerTank.cameraController  = this.cameraController;
+    this.cameraController.setPlayerTank(this.playerTank);
+    this.collisionManager.registerTank(this.playerTank);
+
+    this.playerVehicleType = target;
+  }
+
+  startRound(vehicle = 'tank') {
+    this.setPlayerVehicle(vehicle);
     this.pendingRoundResult = null;
     this.roundEndDelayTimer = 0;
     this._resetEndlessState();
@@ -384,15 +422,17 @@ export class GameManager {
     for (const u of this.enemyUnits) u.ai.setGameState(GameState.PLAYING);
     for (const u of this.allyUnits)  u.ai.setGameState(GameState.PLAYING);
     this.setState(GameState.PLAYING);
-    // Straight into the tank — first-person from the first frame.
+    // Straight into the cockpit — first-person from the first frame.
     // Called from the start button/key event, so pointer lock is granted.
     this.cameraController.enterFirstPerson(this._canvas);
   }
 
   /**
-   * Play-Again path — regenerates terrain (and obstacles) then starts a fresh round.
+   * Play-Again path — regenerates terrain (and obstacles) then starts a fresh
+   * round, keeping the current chassis unless a different one is requested.
    */
-  restartRound() {
+  restartRound(vehicle = this.playerVehicleType) {
+    this.setPlayerVehicle(vehicle);
     this.pendingRoundResult = null;
     this.roundEndDelayTimer = 0;
     this._resetEndlessState();

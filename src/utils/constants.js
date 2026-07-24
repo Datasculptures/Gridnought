@@ -207,6 +207,45 @@ export const TANK = {
   maxClimbAngle: 35,          // degrees — steeper angles are impassable
 };
 
+// Two-legged walker — a second player chassis. Reuses TANK movement speeds
+// and the shared gun/ammo/armor systems; these values shape the body, the
+// procedural walk cycle, the camera sway, and how it strides over ravines.
+export const MECH = {
+  // Torso (the armored "hull" for damage logic)
+  torso:  { width: 2.2, height: 1.7, depth: 2.6 },
+  bodyHeight: 2.9,           // hip height — the torso rides this far above the feet
+  eyeOffset:  4.6,           // first-person driver eye height above the ground point
+  groundOffset: 0.1,
+
+  // Leg geometry
+  legSpread: 0.95,           // lateral hip offset from centre
+  thigh: 1.5,
+  shin:  1.7,
+
+  // Procedural gait
+  strideRate: 0.85,          // walk-phase radians advanced per world-unit travelled
+  swingAmp:   0.55,          // thigh fore/aft swing (radians) at full speed
+  kneeAmp:    0.85,          // knee bend (radians) at full speed
+  kneeIdle:   0.16,          // slight standing knee bend
+  ease:       9,             // rate joints/body ease toward their target pose
+
+  // Body bob & sway (scaled by current speed fraction)
+  bobAmp:   0.18,            // vertical torso bob
+  rollAmp:  0.055,           // side-to-side torso roll (radians)
+  pitchAmp: 0.045,           // fore/aft torso pitch (radians)
+
+  // First-person view sway — the walk you feel through the cockpit
+  viewBobAmp:   0.16,
+  viewYawAmp:   0.012,
+  viewPitchAmp: 0.010,
+  viewRollAmp:  0.024,
+
+  // Ravine stepping — the walker rides the higher of its fore/aft footfalls,
+  // so it bridges narrow ravines instead of sinking to the channel floor and
+  // descends gradually into wide ones.
+  strideReach: 2.6,          // fore/aft foot sample distance for support height
+};
+
 export const PROJECTILE = {
   // Ballistic physics — max range ≈ muzzleVelocity² / gravity ≈ 48 units at 45°
   muzzleVelocity: 31,         // world units per second (22 * √2 → doubles max range)

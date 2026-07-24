@@ -61,15 +61,20 @@ export default function App() {
     };
   }, []);
 
-  const handleStart = () => {
+  // Begins a fresh run in the chosen chassis. From the pause screen this
+  // abandons the current run. The player instance is rebuilt on a chassis
+  // swap, so the refs the HUD/minimap read must be refreshed.
+  const beginRun = (vehicle) => {
     const gm = managerRef.current;
     if (!gm) return;
-    // From the pause screen this abandons the current run and starts fresh
-    if (gm.state === 'PAUSED') gm.restartRound();
-    else gm.startRound();
-    // Update terrain ref — the round start rebuilds the terrain
-    terrainRef.current = gm.terrain;
+    if (gm.state === 'PAUSED') gm.restartRound(vehicle);
+    else gm.startRound(vehicle);
+    terrainRef.current    = gm.terrain;
+    playerTankRef.current = gm.playerTank;
   };
+
+  const handleStart     = () => beginRun('tank');
+  const handleStartMech = () => beginRun('mech');
 
   const handleQuit = () => {
     // Tauri desktop window; falls back to window.close() in a plain browser
@@ -85,9 +90,13 @@ export default function App() {
   const handlePlayAgain = () => {
     const gm = managerRef.current;
     setGameResult(null);
-    gm?.restartRound();
-    // restartRound() calls regenerateTerrain() — update ref so Minimap re-bakes terrain
-    if (gm) terrainRef.current = gm.terrain;
+    gm?.restartRound();   // keeps the current chassis
+    // restartRound() calls regenerateTerrain() — update refs so Minimap re-bakes
+    // terrain and the HUD tracks the (possibly rebuilt) player instance
+    if (gm) {
+      terrainRef.current    = gm.terrain;
+      playerTankRef.current = gm.playerTank;
+    }
   };
 
   return (
@@ -134,6 +143,7 @@ export default function App() {
           gameState={gameState}
           onResume={() => managerRef.current?.resumeGame()}
           onStart={handleStart}
+          onStartMech={handleStartMech}
           onQuit={handleQuit}
           onHowTo={() => setShowHowTo(true)}
         />
