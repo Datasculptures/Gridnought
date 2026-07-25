@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER, COLLISION, TARGETING, EMPLACEMENT, BASE, CRATER, AMMO, MINELAYER, TRANSPORT, ALLY, RUIN } from '../utils/constants.js';
+import { COLORS, CAMERA, MAX_DELTA, SPAWN, ROUND, INFANTRY, TRUCK, APC, JAMMER, TANK, POWERUP, ENDLESS, SCORE, CHUNK, DRONE, MESSAGES, BOMBER, COLLISION, TARGETING, EMPLACEMENT, BASE, CRATER, AMMO, MINELAYER, TRANSPORT, ALLY, RUIN, GRIDNOUGHT } from '../utils/constants.js';
 import GameState from './GameState.js';
 import InputManager from '../input/InputManager.js';
 import ChunkedTerrain from '../terrain/ChunkedTerrain.js';
@@ -11,6 +11,7 @@ import CollisionManager from '../physics/CollisionManager.js';
 import ObstacleManager from '../terrain/ObstacleManager.js';
 import Tank from '../entities/Tank.js';
 import PlayerMech from '../entities/PlayerMech.js';
+import Gridnought from '../entities/Gridnought.js';
 import ProjectileManager from '../entities/ProjectileManager.js';
 import AIController from '../ai/AIController.js';
 import InfantryUnit from '../entities/InfantryUnit.js';
@@ -295,6 +296,7 @@ export class GameManager {
       this._updateThreat(delta);
       this._updateBomber(delta);
       this._updateTransport(delta);
+      this._maybeSpawnBoss();
 
       // Stream terrain chunks around the player
       this.terrain.setFocus(this.playerTank.position.x, this.playerTank.position.z);
@@ -1057,6 +1059,7 @@ export class GameManager {
     this._spawnedNests    = new Set();
     this._spawnedAllies   = new Set();
     this._transportTimer  = 0;
+    this._bossSpawned     = false;
     if (this.playerTank) {
       this.playerTank.reloadFactor = 1;
       this.playerTank.speedFactor  = 1;
@@ -1143,6 +1146,23 @@ export class GameManager {
     if (e.kind === 'truck' || e.kind === 'apc' || e.kind === 'jammer') {
       this._respawnQueue.push({ kind: e.kind, timer: ENDLESS.respawnDelay });
     }
+  }
+
+  /**
+   * The level boss — a Gridnought walker strides in once the player passes the
+   * score threshold. Spawned once per run, far enough out to be seen coming.
+   */
+  _maybeSpawnBoss() {
+    if (this._bossSpawned || this.points < GRIDNOUGHT.spawnScore) return;
+    this._bossSpawned = true;
+    const pos = this._findClearPosNearPlayer(GRIDNOUGHT.spawnDist * 0.8, GRIDNOUGHT.spawnDist);
+    this.entityManager.add(new Gridnought(this.scene, {
+      position: pos,
+      variant: 'hexapod',
+      isBoss: true,
+      terrain: this.terrain,
+    }));
+    this._pushMessage('⚠ GRIDNOUGHT INBOUND');
   }
 
   /** Random clear position on a ring around the player. */

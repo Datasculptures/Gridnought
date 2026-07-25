@@ -226,6 +226,8 @@ export const MECH = {
   cockpitRise: 0.65,         // cockpit centre above the ball joint
   cannonDrop:  0.85,         // cannon centre below the ball joint
   cannonFwd:   0.25,         // cannon housing forward offset from the joint
+  cannonSide:  0.6,          // barrel offset to the right of centre
+  cannonLen:   2.0,          // barrel length (shorter than the tank's 3.0)
   eyeUp:   0.12,             // driver eye height inside the cockpit
   eyeFwd:  0.95,             // eye distance forward — just past the open front (depth/2=0.75)
 
@@ -256,6 +258,32 @@ export const MECH = {
   // Ravine stepping — ride the higher of the fore/aft footfalls, so narrow
   // ravines are bridged and wide ones descended gradually.
   strideReach: 2.6,          // fore/aft foot sample distance for support height
+};
+
+// GRIDNOUGHT — the heavy assault units the game is named for: massive,
+// multi-turret war machines that soak an enormous amount of fire. Two chassis
+// (a tracked land-battleship and a six-legged walker); the walker also serves
+// as the level boss that arrives once the player passes GRIDNOUGHT.spawnScore.
+export const GRIDNOUGHT = {
+  hp:         26,            // regular spawn hit points
+  bossHp:     46,            // boss is even tougher
+  hitRadius:  5.5,           // large hit sphere — easy to hit, hard to kill
+  score:      60,
+  bossScore:  150,
+  mgHitsToKill: 8,           // machine-gun rounds soaked per point of damage
+  speed:      4.5,           // slow, relentless advance
+  turnSpeed:  0.8,           // rad/s hull turn
+  standoff:   26,            // holds roughly this far from the target
+  turretTraverse: 1.6,       // rad/s per turret
+  range:      95,            // firing range
+  cooldown:   1.9,           // seconds between shots per turret
+  muzzleVelocity: 34,
+  aimTolerance:   0.18,      // radians a turret must be within to fire
+  groundOffset:   0.1,
+  spawnScore: 100,           // boss appears once the score reaches this
+  spawnDist:  95,            // spawns this far out — within its own firing range
+  color:      0xff5544,
+  bossColor:  0xff2255,
 };
 
 export const PROJECTILE = {

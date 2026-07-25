@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import { APP, POWERUP, COLORS, AMMO } from '../utils/constants.js';
 
 import Tank from '../entities/Tank.js';
+import PlayerMech from '../entities/PlayerMech.js';
+import Gridnought from '../entities/Gridnought.js';
 import InfantryUnit from '../entities/InfantryUnit.js';
 import TruckVehicle from '../entities/TruckVehicle.js';
 import APCVehicle from '../entities/APCVehicle.js';
@@ -148,6 +150,7 @@ export default function HowToPage({ visible, onBack }) {
     const entities = [];
     const concepts = [];
     const exhibits = [];
+    const walkers  = []; // articulated units animated in place each frame
 
     /** Places a live game entity and registers its floating label. */
     const show = (label, entity, x, z, ry = 0, labelY = 3.2, y = 0) => {
@@ -192,6 +195,22 @@ export default function HowToPage({ visible, onBack }) {
     turret._wireMat.color.setHex(COLORS.enemyTank);
     turret.turretPivot.position.y = turret._turretBaseY;
     show('TURRET EMPLACEMENT · 6 PTS', turret, 30, -20, Math.PI, 4.2);
+
+    // ---- Heavy line (behind the front row): the walker + the Gridnoughts ----
+    const mech = new PlayerMech(scene, { ...tankCfg('medium'), color: COLORS.playerTank });
+    show('YOUR MECH — WALKER · START AS MECH', mech, 20, -33, Math.PI, 7.4);
+    walkers.push(mech);
+
+    const gnWalker = new Gridnought(scene, {
+      position: { x: 0, z: 0 }, variant: 'hexapod', isBoss: true, terrain: stubTerrain,
+    });
+    show('GRIDNOUGHT — WALKER · LEVEL BOSS @ 100 PTS · 150 PTS', gnWalker, -24, -46, Math.PI, 9.0);
+    walkers.push(gnWalker);
+
+    const gnShip = new Gridnought(scene, {
+      position: { x: 0, z: 0 }, variant: 'landship', terrain: stubTerrain,
+    });
+    show('GRIDNOUGHT — LANDSHIP · 3 TURRETS · 60 PTS', gnShip, 20, -47, Math.PI, 6.6);
 
     // ---- Row 2: ground forces ----
     show('INFANTRY · 1 PT',
@@ -361,6 +380,12 @@ export default function HowToPage({ visible, onBack }) {
       camera.lookAt(player.x + Math.sin(player.heading) * 4, 1.2, player.z + Math.cos(player.heading) * 4);
 
       for (const pu of spinners) pu.update(dt, null);
+
+      // Walkers march in place so the visitor can see the leg articulation
+      for (const w of walkers) {
+        if (w._postUpdate) { w.speed = 7; w._postUpdate(dt); }        // player mech
+        else if (w._animateLegs) { w._speed = 3; w._animateLegs(dt); } // gridnought walker
+      }
 
       const labelHost = labelsRef.current;
       if (labelHost) {

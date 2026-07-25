@@ -308,6 +308,20 @@ export default function Minimap({
               ctx.arc(px, py, MINIMAP.tankRadius * 0.35, 0, Math.PI * 2);
               ctx.fill();
               break;
+            case 'gridnought': {
+              // Heavy war machine / boss: a large red diamond, filled + ringed
+              const s = MINIMAP.tankRadius * 2.0;
+              ctx.fillStyle   = '#ff2255';
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth   = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(px, py - s); ctx.lineTo(px + s, py);
+              ctx.lineTo(px, py + s); ctx.lineTo(px - s, py);
+              ctx.closePath();
+              ctx.fill();
+              ctx.stroke();
+              break;
+            }
             default:
               ctx.fillStyle = '#aaaaaa';
               ctx.beginPath();
