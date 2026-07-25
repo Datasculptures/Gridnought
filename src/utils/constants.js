@@ -224,9 +224,9 @@ export const MECH = {
   headPitchLimit: 0.785,     // ±45°
   headTurnSpeed:  9,         // rad/s the head slews toward the aim target
   cockpitRise: 0.65,         // cockpit centre above the ball joint
-  cannonDrop:  0.85,         // cannon centre below the ball joint
-  cannonFwd:   0.25,         // cannon housing forward offset from the joint
-  cannonSide:  0.6,          // barrel offset to the right of centre
+  cannonY:     0.4,          // barrel height on the head — level side mount
+  cannonFwd:   0.1,          // cannon housing forward offset from the joint
+  cannonSide:  1.05,         // barrel mounted out the RIGHT side of the head
   cannonLen:   2.0,          // barrel length (shorter than the tank's 3.0)
   eyeUp:   0.12,             // driver eye height inside the cockpit
   eyeFwd:  0.95,             // eye distance forward — just past the open front (depth/2=0.75)

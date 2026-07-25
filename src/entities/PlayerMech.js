@@ -117,23 +117,24 @@ export default class PlayerMech extends Tank {
     this._detail(new THREE.BoxGeometry(0.6, 0.5, 0.1),
       this.barrelElevPivot, 0, MECH.cockpitRise - 0.35, -0.55);          // seat back
 
-    // Fixed cannon, slung below the cockpit and offset to the right — a short
-    // stubby barrel that keeps clear of the driver's forward view.
+    // Fixed cannon mounted out the RIGHT side of the head at cockpit level — a
+    // short barrel on a side pod that stays clear of the driver's forward view.
     const sx  = MECH.cannonSide;
+    const cy  = MECH.cannonY;
     const len = MECH.cannonLen;
-    const gunHouseGeo = new THREE.BoxGeometry(0.9, 0.7, 1.0);
-    this._detail(gunHouseGeo, this.barrelElevPivot, sx * 0.4, -MECH.cannonDrop, MECH.cannonFwd);
+    // Side pod bracket joining the cockpit to the gun
+    this._detail(new THREE.BoxGeometry(0.7, 0.5, 0.7), this.barrelElevPivot, sx * 0.7, cy, MECH.cannonFwd);
     const barrelGeo = new THREE.CylinderGeometry(TANK.barrel.radius, TANK.barrel.radius, len, 4);
     // barrel (solid+wire) — expose barrelMesh/barrelSolidMesh so Tank.dispose frees it
     this.barrelSolidMesh = new THREE.Mesh(barrelGeo, this._solidMat);
     this.barrelMesh      = new THREE.Mesh(barrelGeo, this._wireMat);
     for (const m of [this.barrelSolidMesh, this.barrelMesh]) {
       m.rotation.x = Math.PI / 2;
-      m.position.set(sx, -MECH.cannonDrop, MECH.cannonFwd + len / 2);
+      m.position.set(sx, cy, MECH.cannonFwd + len / 2);
       this.barrelElevPivot.add(m);
     }
     const muzzleGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.35, 5);
-    this._detail(muzzleGeo, this.barrelElevPivot, sx, -MECH.cannonDrop,
+    this._detail(muzzleGeo, this.barrelElevPivot, sx, cy,
       MECH.cannonFwd + len - 0.1, Math.PI / 2, 0, 0);
 
     // ---- Driver eye: at the open front of the cockpit, looking out ----
@@ -165,11 +166,11 @@ export default class PlayerMech extends Tank {
     this._elevation        = Math.max(min, Math.min(max, this._elevation - d.y * SENS));
   }
 
-  /** Muzzle world position — the short cannon sits below and right of the joint. */
+  /** Muzzle world position — the short cannon sits out the right side of the head. */
   getBarrelTip() {
     this.group.updateWorldMatrix(true, true);
     const localTip = new THREE.Vector3(
-      MECH.cannonSide, -MECH.cannonDrop, MECH.cannonFwd + MECH.cannonLen,
+      MECH.cannonSide, MECH.cannonY, MECH.cannonFwd + MECH.cannonLen,
     );
     return this.barrelElevPivot.localToWorld(localTip);
   }

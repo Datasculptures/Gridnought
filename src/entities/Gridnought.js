@@ -90,20 +90,30 @@ export default class Gridnought {
     return { pivot, muzzle, cooldown: GRIDNOUGHT.cooldown * (0.3 + Math.random() * 0.7), yaw: 0 };
   }
 
-  /** One walker leg (hexapod). Returns {root, hip, knee, side, gait}. */
+  /**
+   * One insect-style walker leg: the femur splays sharply out to a high knee,
+   * then the tibia drops back down to a foot near the body's footprint — the
+   * classic bent, spidery silhouette. Returns {root, hip, knee, side, gait}.
+   */
   _buildLeg(x, y, z, side, gait) {
     const root = new THREE.Group();
     root.position.set(x, y, z);
-    this._part(new THREE.BoxGeometry(0.5, 0.5, 0.5), root, 0, 0, 0);       // hip
-    const hip = new THREE.Group();
-    hip.rotation.z = side * 0.5;                                           // splay outward
+    this._part(new THREE.BoxGeometry(0.5, 0.5, 0.5), root, 0, 0, 0);          // hip housing
+    const hip = new THREE.Group();                                           // fore/aft swing (animated)
     root.add(hip);
-    this._part(new THREE.BoxGeometry(0.32, 2.0, 0.32), hip, 0, -1.0, 0);   // thigh
-    const knee = new THREE.Group();
-    knee.position.y = -2.0;
-    hip.add(knee);
-    this._part(new THREE.BoxGeometry(0.28, 2.2, 0.28), knee, 0, -1.1, 0);  // shin
-    this._part(new THREE.BoxGeometry(0.5, 0.25, 0.7), knee, 0, -2.2, 0.1); // foot
+    const coxa = new THREE.Group();
+    coxa.rotation.z = side * 1.15;                                           // splay the femur out to the side
+    hip.add(coxa);
+    const femurLen = 1.8;
+    this._part(new THREE.BoxGeometry(0.26, femurLen, 0.26), coxa, 0, -femurLen / 2, 0); // femur (up-and-out)
+    const knee = new THREE.Group();                                         // elbow, high and out to the side
+    knee.position.y = -femurLen;
+    knee.rotation.z = -side * 1.5;                                          // tibia drops back down past vertical
+    coxa.add(knee);
+    this._part(new THREE.BoxGeometry(0.34, 0.34, 0.34), knee, 0, 0, 0);     // knee joint
+    const tibiaLen = 3.0;
+    this._part(new THREE.BoxGeometry(0.2, tibiaLen, 0.2), knee, 0, -tibiaLen / 2, 0);  // tibia (down to the ground)
+    this._part(new THREE.BoxGeometry(0.35, 0.2, 0.55), knee, 0, -tibiaLen, 0.05);      // foot / claw
     return { root, hip, knee, side, gait };
   }
 

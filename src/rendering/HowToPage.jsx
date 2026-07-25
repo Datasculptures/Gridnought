@@ -455,23 +455,13 @@ export default function HowToPage({ visible, onBack }) {
       </div>
 
       <div style={{
-        position: 'absolute', left: 16, top: 90, color: '#00cc00',
-        fontFamily: 'monospace', fontSize: 11, lineHeight: 1.9, letterSpacing: 1,
-        background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(0,255,0,0.3)',
-        padding: '10px 14px', pointerEvents: 'none',
+        position: 'absolute', left: 0, right: 0, bottom: 40, textAlign: 'center',
+        color: '#00cc00', fontFamily: 'monospace', fontSize: 11, letterSpacing: 1,
+        lineHeight: 1.9, pointerEvents: 'none',
       }}>
-        <div style={{ color: '#ffff00', marginBottom: 4 }}>COMMANDS</div>
-        <div>W / S — DRIVE</div>
-        <div>A / D — TURN HULL</div>
-        <div>MOUSE — AIM TURRET</div>
-        <div>CLICK — FIRE SELECTED AMMO</div>
-        <div>1 / 2 / 3 — {AMMO.order.map(t => AMMO.types[t].short).join(' · ')}</div>
-        <div>X — DRONE STRIKE (ON TARGET LOCK)</div>
-        <div>, / . — BARREL ELEVATION</div>
-        <div>P — FIRST / THIRD PERSON</div>
-        <div>R — RETASK DRONE</div>
-        <div>Q / E — ORBIT CAMERA</div>
-        <div>ESC — PAUSE MENU</div>
+        <div><span style={{ color: '#ffff00' }}>COMMANDS&nbsp;&nbsp;</span>
+          W/S DRIVE&nbsp;&nbsp;·&nbsp;&nbsp;A/D TURN HULL&nbsp;&nbsp;·&nbsp;&nbsp;MOUSE AIM&nbsp;&nbsp;·&nbsp;&nbsp;CLICK FIRE&nbsp;&nbsp;·&nbsp;&nbsp;1/2/3 {AMMO.order.map(t => AMMO.types[t].short).join('·')}&nbsp;&nbsp;·&nbsp;&nbsp;X DRONE STRIKE</div>
+        <div>, / . BARREL ELEVATION&nbsp;&nbsp;·&nbsp;&nbsp;P FIRST/THIRD PERSON&nbsp;&nbsp;·&nbsp;&nbsp;R RETASK DRONE&nbsp;&nbsp;·&nbsp;&nbsp;Q/E ORBIT CAMERA&nbsp;&nbsp;·&nbsp;&nbsp;ESC PAUSE MENU</div>
       </div>
 
       <div style={{
