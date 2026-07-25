@@ -100,7 +100,7 @@ export default class CameraController {
       // Chassis-specific eye height + walk sway (the walker rocks with its gait)
       const eyeOff  = tank.getEyeOffset ? tank.getEyeOffset() : 2.35;
       const bob     = tank.getViewBob ? tank.getViewBob() : null;
-      const aimYaw  = tank.heading + tank.turretAngle + (bob?.dyaw || 0); // turret world yaw
+      const aimYaw  = tank.heading + tank.turretAngle + (bob?.dyaw || 0); // aim world yaw
       const elev    = (tank.getViewElevation ? tank.getViewElevation() : 0) + (bob?.dpitch || 0);
 
       const sinY = Math.sin(aimYaw);
@@ -108,10 +108,18 @@ export default class CameraController {
       const cosE = Math.cos(elev);
       const sinE = Math.sin(elev);
 
-      // Eye: above the turret, nudged back so the barrel base stays in frame
-      const eyeX = tankPos.x - sinY * 1.0;
-      const eyeY = tankPos.y + eyeOff + (bob?.dy || 0);
-      const eyeZ = tankPos.z - cosY * 1.0;
+      // Eye position: a chassis may pin it (the walker's open cockpit, which
+      // already bobs with the gait); otherwise sit above the turret, nudged
+      // back so the barrel base stays in frame.
+      let eyeX, eyeY, eyeZ;
+      const anchor = tank.getEyeWorld ? tank.getEyeWorld() : null;
+      if (anchor) {
+        eyeX = anchor.x; eyeY = anchor.y; eyeZ = anchor.z;
+      } else {
+        eyeX = tankPos.x - sinY * 1.0;
+        eyeY = tankPos.y + eyeOff + (bob?.dy || 0);
+        eyeZ = tankPos.z - cosY * 1.0;
+      }
 
       this.camera.position.set(eyeX, eyeY, eyeZ);
       this.camera.lookAt(

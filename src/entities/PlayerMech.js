@@ -5,23 +5,24 @@ import Tank from './Tank.js';
 /**
  * PlayerMech — a two-legged walker chassis for the player.
  *
- * It subclasses Tank so it inherits every combat system unchanged: turret
- * aiming, barrel elevation, the MG/HE/AP ammunition, armour zones, reload,
- * first-person mode, and destruction. What it overrides is purely the body:
+ * It subclasses Tank so it inherits every combat system unchanged (ammo,
+ * armour, reload, firing, first-person, destruction) and overrides only the
+ * body and how it moves/aims:
  *
- *   • an articulated model — an armoured torso on two jointed legs, the driver
- *     up in a cockpit with the traversing gun slung BELOW them;
- *   • a procedural walk cycle whose stride length tracks travel speed, with the
- *     torso bobbing and rolling on each step;
- *   • a first-person camera that sways with the gait (getViewBob);
- *   • ravine traversal — the legs let it step over narrow ravines (riding the
- *     higher footfall) and descend into wide ones, and steep slopes that stop a
- *     tank don't stop it.
+ *   • A tall, slim biped: two jointed legs → pelvis → a ball joint → the HEAD,
+ *     an open-front cockpit with the driver up top and the cannon fixed centred
+ *     beneath. The camera looks straight out of the open cockpit.
+ *   • The cannon does not traverse on its own — the whole head aims on the ball
+ *     joint, limited to ±80° yaw and ±45° pitch. Beyond that you turn the hull.
+ *   • A procedural walk cycle whose stride tracks speed; the torso bobs and
+ *     rolls, so the cockpit view naturally swings with each step.
+ *   • Ravine traversal: it steps into/over ravines a tank must avoid, riding
+ *     the higher of its fore/aft footfalls to bridge narrow ones.
  */
 export default class PlayerMech extends Tank {
   // --- Model ----------------------------------------------------------------
 
-  /** Adds a solid+wireframe pair sharing one geometry; tracks the geo for dispose. */
+  /** Adds a solid+wireframe pair sharing one geometry; tracks it for dispose. */
   _detail(geo, parent, x, y, z, rx = 0, ry = 0, rz = 0) {
     this._extraGeos.push(geo);
     for (const mat of [this._solidMat, this._wireMat]) {
@@ -34,21 +35,21 @@ export default class PlayerMech extends Tank {
 
   /** One articulated leg: hip → thigh → knee → shin → foot. */
   _buildLeg(side) {
+    const w = MECH.legWidth;
     const root = new THREE.Group();
     root.position.set(side * MECH.legSpread, MECH.bodyHeight, 0);
-
-    this._detail(new THREE.BoxGeometry(0.7, 0.7, 0.7), root, 0, 0, 0); // hip actuator
+    this._detail(new THREE.BoxGeometry(w + 0.2, 0.5, 0.5), root, 0, 0, 0); // hip actuator
 
     const hip = new THREE.Group();
     root.add(hip);
-    this._detail(new THREE.BoxGeometry(0.42, MECH.thigh, 0.42), hip, 0, -MECH.thigh / 2, 0);
+    this._detail(new THREE.BoxGeometry(w, MECH.thigh, w), hip, 0, -MECH.thigh / 2, 0);
 
     const knee = new THREE.Group();
     knee.position.y = -MECH.thigh;
     hip.add(knee);
-    this._detail(new THREE.BoxGeometry(0.34, MECH.shin, 0.34), knee, 0, -MECH.shin / 2, 0.02);
-    this._detail(new THREE.BoxGeometry(0.36, 0.36, 0.36), knee, 0, 0, 0);            // knee joint
-    this._detail(new THREE.BoxGeometry(0.8, 0.28, 1.5), knee, 0, -MECH.shin + 0.1, 0.35); // foot
+    this._detail(new THREE.BoxGeometry(w + 0.06, 0.32, w + 0.06), knee, 0, 0, 0);          // knee
+    this._detail(new THREE.BoxGeometry(w - 0.04, MECH.shin, w - 0.04), knee, 0, -MECH.shin / 2, 0.02); // shin
+    this._detail(new THREE.BoxGeometry(0.6, 0.22, 1.3), knee, 0, -MECH.shin + 0.05, 0.3);  // foot
 
     return { root, hip, knee, side };
   }
@@ -69,120 +70,116 @@ export default class PlayerMech extends Tank {
 
     this.group = new THREE.Group();
 
-    // ---- Legs (attached to the root so the hips stay planted while the torso
-    //      bobs above them like suspension) ----
+    // ---- Legs (planted on the root; the torso bobs above them) ----
     this.legs = [];
     for (const side of [-1, 1]) {
       const leg = this._buildLeg(side);
       this.group.add(leg.root);
       this.legs.push(leg);
     }
-    // Pelvis yoke bridging the two hips
-    this._detail(new THREE.BoxGeometry(MECH.legSpread * 2 + 0.4, 0.5, 1.0),
-      this.group, 0, MECH.bodyHeight, 0);
 
-    // ---- Body pivot: the torso assembly that bobs / rolls / pitches ----
+    // ---- Body pivot: pelvis + neck + ball joint; bobs/sways with the gait ----
     this.bodyPivot = new THREE.Group();
     this.bodyPivot.position.y = MECH.bodyHeight;
     this.group.add(this.bodyPivot);
 
-    const T = MECH.torso;
-    // Armoured torso — the box carrying the 6 per-face armour materials
-    const torsoGeo = new THREE.BoxGeometry(T.width, T.height, T.depth);
-    this.hullSolidMesh = new THREE.Mesh(torsoGeo, this._hullFaceMats);
-    this.hullMesh      = new THREE.Mesh(torsoGeo, this._wireMat);
-    this.bodyPivot.add(this.hullSolidMesh);
-    this.bodyPivot.add(this.hullMesh);
+    this._detail(new THREE.BoxGeometry(MECH.legSpread * 2 + 0.3, 0.55, 0.9),
+      this.bodyPivot, 0, 0, 0);                                            // pelvis
+    this._detail(new THREE.CylinderGeometry(0.16, 0.2, MECH.neck, 6),
+      this.bodyPivot, 0, MECH.neck / 2, 0);                               // neck / spine
+    this._detail(new THREE.SphereGeometry(0.34, 8, 6),
+      this.bodyPivot, 0, MECH.neck, 0);                                   // ball joint
 
-    // Driver cockpit up top, open roll-cage with a helmeted driver inside
-    const cabY = T.height / 2 + 0.5;
-    this._detail(new THREE.BoxGeometry(1.5, 0.95, 1.5), this.bodyPivot, 0, cabY, 0.35);   // cab shell
-    this._detail(new THREE.BoxGeometry(1.55, 0.05, 1.55), this.bodyPivot, 0, cabY + 0.5, 0.35); // canopy roof
-    for (const sx of [-0.72, 0.72]) {                                                     // cage pillars
-      this._detail(new THREE.BoxGeometry(0.06, 1.0, 0.06), this.bodyPivot, sx, cabY, 0.35 - 0.7);
-      this._detail(new THREE.BoxGeometry(0.06, 1.0, 0.06), this.bodyPivot, sx, cabY, 0.35 + 0.7);
-    }
-    this._detail(new THREE.SphereGeometry(0.2, 6, 5), this.bodyPivot, 0, cabY + 0.12, 0.5); // driver head
-    this._detail(new THREE.BoxGeometry(0.26, 0.08, 0.06), this.bodyPivot, 0, cabY + 0.14, 0.68); // visor
-
-    // Twin autocannon flanking the cockpit shoulders (cosmetic — the Sentinel cue)
-    const acGeo = new THREE.CylinderGeometry(0.09, 0.09, 1.6, 5);
-    for (const sx of [-0.55, 0.55]) {
-      this._extraGeos.push(acGeo);
-      for (const mat of [this._solidMat, this._wireMat]) {
-        const m = new THREE.Mesh(acGeo, mat);
-        m.rotation.x = Math.PI / 2;
-        m.position.set(sx, cabY + 0.55, -0.2);
-        this.bodyPivot.add(m);
-      }
-    }
-
-    // ---- Turret pivot: the traversing main gun, slung BELOW the driver ----
+    // ---- Head: yaws about the ball joint (turretPivot), pitches about the
+    //      same point (barrelElevPivot). Cockpit above, cannon below. ----
     this.turretPivot = new THREE.Group();
-    this.turretPivot.position.set(0, -T.height / 2 + 0.35, 0.15);
+    this.turretPivot.position.set(0, MECH.neck, 0);
     this.bodyPivot.add(this.turretPivot);
 
-    const gunHouseGeo = new THREE.BoxGeometry(1.3, 0.85, 1.15);
-    this.turretSolidMesh = new THREE.Mesh(gunHouseGeo, this._solidMat);
-    this.turretMesh      = new THREE.Mesh(gunHouseGeo, this._wireMat);
-    this.turretPivot.add(this.turretSolidMesh);
-    this.turretPivot.add(this.turretMesh);
-    this._detail(new THREE.BoxGeometry(0.85, 0.55, 0.35), this.turretPivot, 0, 0, 0.6); // mantlet
-
-    // ---- Barrel elevation pivot (reuses the tank barrel dimensions) ----
-    this.barrelElevPivot = new THREE.Group();
-    this.barrelElevPivot.position.set(0, 0, 0.6);
+    this.barrelElevPivot = new THREE.Group();          // whole-head pitch pivot
     this.turretPivot.add(this.barrelElevPivot);
 
+    const T = MECH.torso;
+    // Cockpit shell = the armoured "hull" box (open to the front for the view)
+    const cockGeo = new THREE.BoxGeometry(T.width, T.height, T.depth);
+    this.hullSolidMesh = new THREE.Mesh(cockGeo, this._hullFaceMats);
+    this.hullMesh      = new THREE.Mesh(cockGeo, this._wireMat);
+    this.hullSolidMesh.position.y = MECH.cockpitRise;
+    this.hullMesh.position.y      = MECH.cockpitRise;
+    this.barrelElevPivot.add(this.hullSolidMesh);
+    this.barrelElevPivot.add(this.hullMesh);
+
+    // Cockpit detailing — canopy rim, seat, driver (all behind the eye point)
+    this._detail(new THREE.BoxGeometry(T.width + 0.1, 0.06, T.depth + 0.1),
+      this.barrelElevPivot, 0, MECH.cockpitRise + T.height / 2, -0.05);   // roof rim
+    this._detail(new THREE.SphereGeometry(0.19, 6, 5),
+      this.barrelElevPivot, 0, MECH.cockpitRise - 0.1, -0.35);            // driver head
+    this._detail(new THREE.BoxGeometry(0.6, 0.5, 0.1),
+      this.barrelElevPivot, 0, MECH.cockpitRise - 0.35, -0.55);          // seat back
+
+    // Fixed cannon, centred BELOW the cockpit
+    const gunHouseGeo = new THREE.BoxGeometry(0.9, 0.7, 1.0);
+    this._detail(gunHouseGeo, this.barrelElevPivot, 0, -MECH.cannonDrop, MECH.cannonFwd);
     const barrelGeo = new THREE.CylinderGeometry(
       TANK.barrel.radius, TANK.barrel.radius, TANK.barrel.length, 4,
     );
+    // barrel (solid+wire) — expose barrelMesh/barrelSolidMesh so Tank.dispose frees it
     this.barrelSolidMesh = new THREE.Mesh(barrelGeo, this._solidMat);
-    this.barrelSolidMesh.rotation.x = Math.PI / 2;
-    this.barrelSolidMesh.position.set(0, 0, TANK.barrel.length / 2);
-    this.barrelMesh = new THREE.Mesh(barrelGeo, this._wireMat);
-    this.barrelMesh.rotation.x = Math.PI / 2;
-    this.barrelMesh.position.set(0, 0, TANK.barrel.length / 2);
-    this.barrelElevPivot.add(this.barrelSolidMesh);
-    this.barrelElevPivot.add(this.barrelMesh);
-
-    // Muzzle brake + sleeve (elevate with the gun)
-    const sleeveGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.6, 5);
-    const muzzleGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.4, 5);
-    for (const [geo, z] of [[sleeveGeo, 0.45], [muzzleGeo, TANK.barrel.length - 0.1]]) {
-      this._extraGeos.push(geo);
-      for (const mat of [this._solidMat, this._wireMat]) {
-        const m = new THREE.Mesh(geo, mat);
-        m.rotation.x = Math.PI / 2;
-        m.position.set(0, 0, z);
-        this.barrelElevPivot.add(m);
-      }
+    this.barrelMesh      = new THREE.Mesh(barrelGeo, this._wireMat);
+    for (const m of [this.barrelSolidMesh, this.barrelMesh]) {
+      m.rotation.x = Math.PI / 2;
+      m.position.set(0, -MECH.cannonDrop, MECH.cannonFwd + TANK.barrel.length / 2);
+      this.barrelElevPivot.add(m);
     }
+    const muzzleGeo = new THREE.CylinderGeometry(0.17, 0.17, 0.4, 5);
+    this._detail(muzzleGeo, this.barrelElevPivot, 0, -MECH.cannonDrop,
+      MECH.cannonFwd + TANK.barrel.length - 0.1, Math.PI / 2, 0, 0);
+
+    // ---- Driver eye: at the open front of the cockpit, looking out ----
+    this.eyeAnchor = new THREE.Object3D();
+    this.eyeAnchor.position.set(0, MECH.cockpitRise + MECH.eyeUp, MECH.eyeFwd);
+    this.barrelElevPivot.add(this.eyeAnchor);
   }
 
   // --- Orientation ----------------------------------------------------------
 
-  /**
-   * A walker stays upright — only its heading turns the body. (Tanks conform
-   * to the terrain normal; a biped keeps the torso level and lets the legs
-   * absorb the ground.)
-   */
+  /** A walker stays upright — only its heading turns the body. */
   _applyTransform() {
     this.group.position.copy(this.position);
     this.group.rotation.set(0, this.heading, 0);
   }
 
+  // --- Aim: limited-traverse ball-joint head --------------------------------
+
+  _elevLimits() { return { min: -MECH.headPitchLimit, max: MECH.headPitchLimit }; }
+  _yawLimit()   { return MECH.headYawLimit; }
+  _turretTraverseSpeed() { return MECH.headTurnSpeed; }
+
+  /** Direct head control — mouse steers the head within its arc, no world-lock. */
+  _firstPersonLook(d) {
+    const SENS = 0.0022;
+    const yl = this._yawLimit();
+    const { min, max } = this._elevLimits();
+    this.turretTargetAngle = Math.max(-yl, Math.min(yl, this.turretTargetAngle - d.x * SENS));
+    this._elevation        = Math.max(min, Math.min(max, this._elevation - d.y * SENS));
+  }
+
+  /** Muzzle world position — the cannon sits below the ball-joint pivot. */
+  getBarrelTip() {
+    this.group.updateWorldMatrix(true, true);
+    const localTip = new THREE.Vector3(0, -MECH.cannonDrop, MECH.cannonFwd + TANK.barrel.length);
+    return this.barrelElevPivot.localToWorld(localTip);
+  }
+
   // --- Traversal ------------------------------------------------------------
 
-  /** The walker takes any slope and may step into ravines the tank avoids. */
   _movementFlags() {
     return { avoidDeep: false, relaxSlope: true };
   }
 
   /**
    * Body height = ride the higher of the fore/aft footfalls, so a narrow
-   * ravine is bridged (a foot on each rim) rather than fallen into, and a
-   * wide one is descended gradually.
+   * ravine is bridged (a foot on each rim) and a wide one is descended.
    */
   _supportHeight() {
     const t = this.terrain;
@@ -199,32 +196,29 @@ export default class PlayerMech extends Tank {
 
   _postUpdate(delta) {
     const speedFrac = Math.min(1, Math.abs(this.speed) / TANK.moveSpeed);
-    // Advance the walk phase by distance travelled → stride tracks speed and
-    // reverses correctly when backing up.
     this._walkPhase += this.speed * delta * MECH.strideRate;
     const ph = this._walkPhase;
-    const k  = Math.min(1, MECH.ease * delta); // ease-toward factor
+    const k  = Math.min(1, MECH.ease * delta);
 
     // Legs swing in anti-phase; the knee bends as its leg lifts forward.
     for (const leg of this.legs) {
       const phase = ph + (leg.side < 0 ? 0 : Math.PI);
       const swingTarget = Math.sin(phase) * MECH.swingAmp * speedFrac;
-      const kneeTarget  = MECH.kneeIdle
-        + Math.max(0, Math.sin(phase)) * MECH.kneeAmp * speedFrac;
+      const kneeTarget  = MECH.kneeIdle + Math.max(0, Math.sin(phase)) * MECH.kneeAmp * speedFrac;
       leg.hip.rotation.x  += (swingTarget - leg.hip.rotation.x) * k;
       leg.knee.rotation.x += (kneeTarget  - leg.knee.rotation.x) * k;
     }
 
-    // Torso bob (twice per stride) + roll/pitch sway, all fading with speed.
-    const bobTarget   = MECH.bodyHeight + Math.sin(ph * 2) * MECH.bobAmp   * speedFrac;
+    // Torso bob (twice per stride) + roll/pitch sway, fading with speed. This
+    // physically moves the cockpit — and with it the driver's eye anchor.
+    const bobTarget   = Math.sin(ph * 2) * MECH.bobAmp   * speedFrac;
     const rollTarget  = Math.sin(ph)     * MECH.rollAmp  * speedFrac;
     const pitchTarget = Math.cos(ph * 2) * MECH.pitchAmp * speedFrac;
-    this.bodyPivot.position.y += (bobTarget   - this.bodyPivot.position.y) * k;
+    this.bodyPivot.position.y += ((MECH.bodyHeight + bobTarget) - this.bodyPivot.position.y) * k;
     this.bodyPivot.rotation.z += (rollTarget  - this.bodyPivot.rotation.z) * k;
     this.bodyPivot.rotation.x += (pitchTarget - this.bodyPivot.rotation.x) * k;
 
-    // The walk you feel through the cockpit — a fraction reaches the camera.
-    this._viewBob.dy     = Math.sin(ph * 2) * MECH.viewBobAmp   * speedFrac;
+    // A little rotational swing on top of the eye's physical bob.
     this._viewBob.dyaw   = Math.sin(ph)     * MECH.viewYawAmp   * speedFrac;
     this._viewBob.dpitch = Math.cos(ph * 2) * MECH.viewPitchAmp * speedFrac;
     this._viewBob.droll  = Math.sin(ph)     * MECH.viewRollAmp  * speedFrac;
@@ -232,6 +226,10 @@ export default class PlayerMech extends Tank {
 
   // --- Camera hooks ----------------------------------------------------------
 
-  getEyeOffset() { return MECH.eyeOffset; }
-  getViewBob()   { return this._viewBob; }
+  /** World position of the driver's eye, at the open front of the cockpit. */
+  getEyeWorld() {
+    return this.eyeAnchor.getWorldPosition(new THREE.Vector3());
+  }
+
+  getViewBob() { return this._viewBob; }
 }

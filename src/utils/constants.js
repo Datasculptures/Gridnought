@@ -208,41 +208,53 @@ export const TANK = {
 };
 
 // Two-legged walker — a second player chassis. Reuses TANK movement speeds
-// and the shared gun/ammo/armor systems; these values shape the body, the
-// procedural walk cycle, the camera sway, and how it strides over ravines.
+// and the shared gun/ammo/armor systems. It's a tall, slim biped: the driver
+// rides in an open-front cockpit head with the cannon fixed centred beneath;
+// the whole head aims on a ball joint (limited yaw/pitch) rather than a
+// free-spinning turret. The camera looks straight out of the open cockpit.
 export const MECH = {
-  // Torso (the armored "hull" for damage logic)
-  torso:  { width: 2.2, height: 1.7, depth: 2.6 },
-  bodyHeight: 2.9,           // hip height — the torso rides this far above the feet
-  eyeOffset:  4.6,           // first-person driver eye height above the ground point
+  // Cockpit / chest box — the armoured "hull" for damage logic (kept slim)
+  torso:  { width: 1.6, height: 1.3, depth: 1.5 },
+  bodyHeight: 3.6,           // hip height — a tall stance
+  neck: 1.0,                 // pelvis top → ball joint
   groundOffset: 0.1,
 
-  // Leg geometry
-  legSpread: 0.95,           // lateral hip offset from centre
-  thigh: 1.5,
-  shin:  1.7,
+  // Head = cockpit + fixed cannon, rotating about the ball joint
+  headYawLimit:   1.396,     // ±80°
+  headPitchLimit: 0.785,     // ±45°
+  headTurnSpeed:  9,         // rad/s the head slews toward the aim target
+  cockpitRise: 0.65,         // cockpit centre above the ball joint
+  cannonDrop:  0.85,         // cannon centre below the ball joint
+  cannonFwd:   0.25,         // cannon housing forward offset from the joint
+  eyeUp:   0.12,             // driver eye height inside the cockpit
+  eyeFwd:  0.95,             // eye distance forward — just past the open front (depth/2=0.75)
+
+  // Legs — tall and thin
+  legSpread: 0.8,            // lateral hip offset from centre
+  thigh: 1.9,
+  shin:  2.1,
+  legWidth: 0.3,
 
   // Procedural gait
-  strideRate: 0.85,          // walk-phase radians advanced per world-unit travelled
-  swingAmp:   0.55,          // thigh fore/aft swing (radians) at full speed
-  kneeAmp:    0.85,          // knee bend (radians) at full speed
-  kneeIdle:   0.16,          // slight standing knee bend
+  strideRate: 0.8,           // walk-phase radians advanced per world-unit travelled
+  swingAmp:   0.5,           // thigh fore/aft swing (radians) at full speed
+  kneeAmp:    0.8,           // knee bend (radians) at full speed
+  kneeIdle:   0.14,          // slight standing knee bend
   ease:       9,             // rate joints/body ease toward their target pose
 
   // Body bob & sway (scaled by current speed fraction)
-  bobAmp:   0.18,            // vertical torso bob
-  rollAmp:  0.055,           // side-to-side torso roll (radians)
-  pitchAmp: 0.045,           // fore/aft torso pitch (radians)
+  bobAmp:   0.16,            // vertical torso bob
+  rollAmp:  0.05,            // side-to-side torso roll (radians)
+  pitchAmp: 0.04,            // fore/aft torso pitch (radians)
 
-  // First-person view sway — the walk you feel through the cockpit
-  viewBobAmp:   0.16,
-  viewYawAmp:   0.012,
-  viewPitchAmp: 0.010,
-  viewRollAmp:  0.024,
+  // First-person rotational view sway — the eye position already bobs with the
+  // body; these add a subtle rotational swing on each stride.
+  viewYawAmp:   0.010,
+  viewPitchAmp: 0.008,
+  viewRollAmp:  0.020,
 
-  // Ravine stepping — the walker rides the higher of its fore/aft footfalls,
-  // so it bridges narrow ravines instead of sinking to the channel floor and
-  // descends gradually into wide ones.
+  // Ravine stepping — ride the higher of the fore/aft footfalls, so narrow
+  // ravines are bridged and wide ones descended gradually.
   strideReach: 2.6,          // fore/aft foot sample distance for support height
 };
 

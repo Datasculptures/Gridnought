@@ -159,6 +159,32 @@ export default class Tank {
   /** Optional {dy,dyaw,dpitch,droll} camera sway; null for tanks. */
   getViewBob() { return null; }
 
+  /** Barrel/head elevation limits (radians). */
+  _elevLimits() {
+    return { min: TANK.barrel.minElevation, max: TANK.barrel.maxElevation };
+  }
+
+  /** Max |turret yaw| relative to the hull (radians). π = free 360° traverse. */
+  _yawLimit() { return Math.PI; }
+
+  /** How fast the turret/head slews toward its aim target (rad/s). */
+  _turretTraverseSpeed() { return TURRET.maxTraverseSpeed; }
+
+  /**
+   * First-person mouse-look. The tank stabilises the aim in world space (the
+   * turret counter-rotates so hull turns don't drag the gun off target); the
+   * walker overrides this to steer its limited-traverse head directly.
+   */
+  _firstPersonLook(d) {
+    const SENS = 0.0022;
+    if (this._aimWorldYaw === null) this._aimWorldYaw = this.heading + this.turretAngle;
+    this._aimWorldYaw -= d.x * SENS;
+    const { min, max } = this._elevLimits();
+    this._elevation = Math.max(min, Math.min(max, this._elevation - d.y * SENS));
+    this.turretTargetAngle =
+      ((this._aimWorldYaw - this.heading + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+  }
+
   // ---------------------------------------------------------------------------
   // Mesh construction
   // ---------------------------------------------------------------------------
@@ -414,10 +440,8 @@ export default class Tank {
       // Barrel elevation — Comma lowers, Period raises
       if (this.inputManager.isKeyDown('Comma'))  this._elevation -= TANK.barrel.elevationSpeed * delta;
       if (this.inputManager.isKeyDown('Period'))  this._elevation += TANK.barrel.elevationSpeed * delta;
-      this._elevation = Math.max(
-        TANK.barrel.minElevation,
-        Math.min(TANK.barrel.maxElevation, this._elevation),
-      );
+      const eLim = this._elevLimits();
+      this._elevation = Math.max(eLim.min, Math.min(eLim.max, this._elevation));
 
       // aimTarget stays null — player uses raycaster below
     } else if (this.aiController) {
@@ -522,21 +546,8 @@ export default class Tank {
       this._raycaster.setFromCamera(mousePos, this.camera);
 
       if (this.cameraController?.isPinned) {
-        // First-person mode: pointer-lock mouse look drives the turret.
-        // The aim yaw is world-stabilised — rotating the hull doesn't drag
-        // the gun off target (the turret counter-rotates to hold aim).
-        const d    = this.inputManager.consumeMouseDelta();
-        const SENS = 0.0022; // radians per pixel of mouse movement
-        if (this._aimWorldYaw === null) {
-          this._aimWorldYaw = this.heading + this.turretAngle;
-        }
-        // Yaw increases counter-clockwise (left), so mouse-right subtracts
-        this._aimWorldYaw -= d.x * SENS;
-        this._elevation = Math.max(
-          TANK.barrel.minElevation,
-          Math.min(TANK.barrel.maxElevation, this._elevation - d.y * SENS),
-        );
-        this.turretTargetAngle = ((this._aimWorldYaw - this.heading + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+        // First-person mode: pointer-lock mouse look drives the turret/head.
+        this._firstPersonLook(this.inputManager.consumeMouseDelta());
       } else {
         // Free orbit mode: raycast against terrain for the aim point
         const hits = this._raycaster.intersectObjects(this.terrain.solidMeshes);
@@ -554,15 +565,23 @@ export default class Tank {
       this.turretTargetAngle = ((this.turretTargetAngle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
     }
 
+    // Limited-traverse chassis (the walker's head) clamp the target to its arc.
+    const yawLim = this._yawLimit();
+    if (yawLim < Math.PI) {
+      this.turretTargetAngle = Math.max(-yawLim, Math.min(yawLim, this.turretTargetAngle));
+    }
+
     if (aimPoint || (this.inputManager && this.camera)) {
       let turretDiff = this.turretTargetAngle - this.turretAngle;
       turretDiff = ((turretDiff + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-      this.turretAngle += Math.sign(turretDiff) * Math.min(Math.abs(turretDiff), TURRET.maxTraverseSpeed * delta);
+      this.turretAngle += Math.sign(turretDiff) * Math.min(Math.abs(turretDiff), this._turretTraverseSpeed() * delta);
       this.turretAngle = ((this.turretAngle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+      if (yawLim < Math.PI) this.turretAngle = Math.max(-yawLim, Math.min(yawLim, this.turretAngle));
     }
     this.turretPivot.rotation.y = this.turretAngle;
 
-    // Apply barrel elevation (negative X rotation raises the barrel)
+    // Apply barrel/head elevation (negative X rotation raises the muzzle).
+    // The walker pitches its whole head here (cockpit + cannon share the pivot).
     this.barrelElevPivot.rotation.x = -this._elevation;
 
     // 13. Firing
