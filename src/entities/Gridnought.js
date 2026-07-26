@@ -4,24 +4,25 @@ import DestructionEffect from '../rendering/DestructionEffect.js';
 import { WeaponType } from '../weapons/WeaponTypes.js';
 
 /**
- * Gridnought — a heavy, multi-turret war machine and the game's namesake. Two
- * chassis, selected by `variant`:
+ * Gridnought — a heavy, multi-turret war machine and the game's namesake, plus
+ * a lighter scout that shares the walking chassis. Selected by `variant`:
  *
- *   • 'landship' — a long tracked land-battleship with three turrets down its
- *     spine.
- *   • 'hexapod'  — a six-legged walker carrying three turrets on a raised deck;
- *     this is the level boss that arrives past GRIDNOUGHT.spawnScore.
+ *   • 'landship' — a long tracked land-battleship with three spine turrets.
+ *   • 'hexapod'  — a six-legged walker with three deck turrets; as a boss it is
+ *     the war machine that arrives past GRIDNOUGHT.spawnScore.
+ *   • 'scout'    — a small, quick six-legged tank with a single turret and far
+ *     less armour than a tank; spawns as a regular enemy.
  *
- * It is a plain EntityManager entity (kind 'gridnought', faction 'enemy'): it
- * advances on the nearest target, each turret tracks and fires independently,
- * and it soaks a huge amount of damage, brightening as its armour fails.
+ * A plain EntityManager entity (kind 'gridnought', faction 'enemy'): it advances
+ * on the nearest target, each turret tracks and fires independently, and the
+ * legs step in an insect tripod gait.
  */
 export default class Gridnought {
   constructor(scene, config) {
     this.scene   = scene;
     this.terrain = config.terrain;
-    this.variant = config.variant === 'landship' ? 'landship' : 'hexapod';
-    this.isBoss  = !!config.isBoss;
+    this.variant = ['landship', 'scout'].includes(config.variant) ? config.variant : 'hexapod';
+    this.isBoss  = !!config.isBoss && this.variant === 'hexapod';
 
     this.position = new THREE.Vector3(config.position.x, 0, config.position.z);
     this.heading  = config.position.heading ?? Math.random() * Math.PI * 2;
@@ -30,19 +31,22 @@ export default class Gridnought {
     this.isDestroyed = false;
     this.isArmoured  = true;
 
-    this._maxHp = this.isBoss ? GRIDNOUGHT.bossHp : GRIDNOUGHT.hp;
-    this._hp    = this._maxHp;
+    const spec = this._variantSpec();
+    this._maxHp     = spec.hp;
+    this._hp        = spec.hp;
+    this._speed0    = spec.speed;
+    this._standoff  = spec.standoff;
 
     // Unified entity metadata
     this.kind           = 'gridnought';
     this.faction        = 'enemy';
-    this.hitRadius      = GRIDNOUGHT.hitRadius;
-    this.scoreValue     = this.isBoss ? GRIDNOUGHT.bossScore : GRIDNOUGHT.score;
+    this.hitRadius      = spec.hitR;
+    this.scoreValue     = spec.score;
     this.blocksMovement = true;
-    this.mgHitsToKill   = GRIDNOUGHT.mgHitsToKill;
+    this.mgHitsToKill   = spec.mg;
 
     this._baseColor = this.isBoss ? GRIDNOUGHT.bossColor : GRIDNOUGHT.color;
-    this._walkPhase = 0;
+    this._walkPhase = Math.random() * Math.PI * 2;
     this._speed     = 0;
     this.turrets    = [];
     this.legs       = [];
@@ -54,6 +58,24 @@ export default class Gridnought {
     this._buildMesh();
     this._applyTransform();
     scene.add(this.group);
+  }
+
+  _variantSpec() {
+    switch (this.variant) {
+      case 'landship':
+        return { hp: 26, score: 60, hitR: 5.5, mg: 8, speed: GRIDNOUGHT.speed, standoff: 26 };
+      case 'scout':
+        return {
+          hp: GRIDNOUGHT.scoutHp, score: GRIDNOUGHT.scoutScore, hitR: GRIDNOUGHT.scoutHitRadius,
+          mg: GRIDNOUGHT.scoutMgHits, speed: GRIDNOUGHT.scoutSpeed, standoff: GRIDNOUGHT.scoutStandoff,
+        };
+      default: // hexapod (regular or boss)
+        return {
+          hp: this.isBoss ? GRIDNOUGHT.bossHp : GRIDNOUGHT.hp,
+          score: this.isBoss ? GRIDNOUGHT.bossScore : GRIDNOUGHT.score,
+          hitR: 5.5, mg: 8, speed: GRIDNOUGHT.speed, standoff: 26,
+        };
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -70,13 +92,13 @@ export default class Gridnought {
     }
   }
 
-  /** A turret: rotating housing + barrel. Returns {pivot, muzzle, cooldown}. */
+  /** A turret: rotating housing + barrel. Returns {pivot, muzzle, cooldown, yaw}. */
   _buildTurret(parent, x, y, z, scale = 1) {
     const pivot = new THREE.Group();
     pivot.position.set(x, y, z);
     parent.add(pivot);
     this._part(new THREE.BoxGeometry(1.5 * scale, 0.8 * scale, 1.7 * scale), pivot, 0, 0.4 * scale, 0);
-    this._part(new THREE.BoxGeometry(0.9 * scale, 0.45 * scale, 0.5 * scale), pivot, 0, 0.4 * scale, -1.0 * scale); // bustle
+    this._part(new THREE.BoxGeometry(0.9 * scale, 0.45 * scale, 0.5 * scale), pivot, 0, 0.4 * scale, -1.0 * scale);
     const bl = 2.6 * scale;
     const barrelGeo = new THREE.CylinderGeometry(0.12 * scale, 0.12 * scale, bl, 4);
     this._geos.push(barrelGeo);
@@ -91,29 +113,29 @@ export default class Gridnought {
   }
 
   /**
-   * One insect-style walker leg: the femur splays sharply out to a high knee,
-   * then the tibia drops back down to a foot near the body's footprint — the
-   * classic bent, spidery silhouette. Returns {root, hip, knee, side, gait}.
+   * One insect leg: the femur splays up-and-out to a knee that rides ABOVE the
+   * body, then the tibia drops steeply back down to a foot inside the knee — a
+   * tall, spidery bent silhouette. Returns {root, hip, knee, side, gait}.
    */
   _buildLeg(x, y, z, side, gait) {
     const root = new THREE.Group();
     root.position.set(x, y, z);
     this._part(new THREE.BoxGeometry(0.5, 0.5, 0.5), root, 0, 0, 0);          // hip housing
-    const hip = new THREE.Group();                                           // fore/aft swing (animated)
+    const hip = new THREE.Group();                                           // fore/aft step (animated)
     root.add(hip);
     const coxa = new THREE.Group();
-    coxa.rotation.z = side * 1.15;                                           // splay the femur out to the side
+    coxa.rotation.z = side * 1.7;                                            // femur splays up & out
     hip.add(coxa);
     const femurLen = 1.8;
-    this._part(new THREE.BoxGeometry(0.26, femurLen, 0.26), coxa, 0, -femurLen / 2, 0); // femur (up-and-out)
-    const knee = new THREE.Group();                                         // elbow, high and out to the side
+    this._part(new THREE.BoxGeometry(0.26, femurLen, 0.26), coxa, 0, -femurLen / 2, 0); // femur
+    const knee = new THREE.Group();                                         // high spider knee, out to the side
     knee.position.y = -femurLen;
-    knee.rotation.z = -side * 1.5;                                          // tibia drops back down past vertical
+    knee.rotation.z = -side * 1.85;                                         // tibia drops back down (slightly inboard)
     coxa.add(knee);
-    this._part(new THREE.BoxGeometry(0.34, 0.34, 0.34), knee, 0, 0, 0);     // knee joint
-    const tibiaLen = 3.0;
-    this._part(new THREE.BoxGeometry(0.2, tibiaLen, 0.2), knee, 0, -tibiaLen / 2, 0);  // tibia (down to the ground)
-    this._part(new THREE.BoxGeometry(0.35, 0.2, 0.55), knee, 0, -tibiaLen, 0.05);      // foot / claw
+    this._part(new THREE.BoxGeometry(0.36, 0.36, 0.36), knee, 0, 0, 0);     // knee joint
+    const tibiaLen = 4.0;
+    this._part(new THREE.BoxGeometry(0.18, tibiaLen, 0.18), knee, 0, -tibiaLen / 2, 0); // tibia
+    this._part(new THREE.BoxGeometry(0.32, 0.2, 0.5), knee, 0, -tibiaLen, 0.05);        // foot / claw
     return { root, hip, knee, side, gait };
   }
 
@@ -127,42 +149,47 @@ export default class Gridnought {
 
     if (this.variant === 'landship') {
       this._hitY = 2.2;
-      // Long tracked hull
       this._part(new THREE.BoxGeometry(5.5, 2.0, 13), this.group, 0, 1.4, 0);
-      this._part(new THREE.BoxGeometry(6.2, 1.1, 13.4), this.group, 0, 0.55, 0);   // track deck
-      for (const sx of [-3.0, 3.0]) {                                              // track skirts
-        this._part(new THREE.BoxGeometry(0.6, 1.0, 12.6), this.group, sx, 0.5, 0);
-      }
-      this._part(new THREE.BoxGeometry(4.6, 0.7, 7), this.group, 0, 2.6, -0.5);    // spine deck
-      // Three turrets down the spine
-      this.turrets.push(this._buildTurret(this.group,  0, 2.9,  4.0, 1.15));
-      this.turrets.push(this._buildTurret(this.group,  0, 3.2,  0.0, 1.25));
-      this.turrets.push(this._buildTurret(this.group,  0, 2.9, -4.2, 1.15));
-      // Command tower
+      this._part(new THREE.BoxGeometry(6.2, 1.1, 13.4), this.group, 0, 0.55, 0);
+      for (const sx of [-3.0, 3.0]) this._part(new THREE.BoxGeometry(0.6, 1.0, 12.6), this.group, sx, 0.5, 0);
+      this._part(new THREE.BoxGeometry(4.6, 0.7, 7), this.group, 0, 2.6, -0.5);
+      this.turrets.push(this._buildTurret(this.group, 0, 2.9,  4.0, 1.15));
+      this.turrets.push(this._buildTurret(this.group, 0, 3.2,  0.0, 1.25));
+      this.turrets.push(this._buildTurret(this.group, 0, 2.9, -4.2, 1.15));
       this._part(new THREE.BoxGeometry(1.6, 1.4, 1.6), this.group, 0, 3.9, -5.4);
-    } else {
-      // Hexapod walker — raised deck on six legs
-      const deckY = 4.0;
-      this._hitY = deckY;
-      this._part(new THREE.CylinderGeometry(3.4, 4.0, 1.8, 6), this.group, 0, deckY, 0);  // hull
-      this._part(new THREE.CylinderGeometry(2.4, 3.0, 0.8, 6), this.group, 0, deckY + 1.1, 0); // upper deck
-      this._part(new THREE.BoxGeometry(1.4, 1.2, 1.4), this.group, 0, deckY + 1.9, 0);   // sensor mast head
-      // Six legs — three per side, staggered fore/aft; alternating tripod gait
-      const hipY = deckY - 0.3;
-      let i = 0;
-      for (const side of [-1, 1]) {
-        for (const fz of [3.2, 0, -3.2]) {
-          const gait = (i % 2 === 0) ? 0 : Math.PI; // alternating tripod
-          this.legs.push(this._buildLeg(side * 3.4, hipY, fz, side, gait));
-          this.group.add(this.legs[this.legs.length - 1].root);
-          i++;
-        }
+      return;
+    }
+
+    // Hexapod walker (heavy) or scout (small, single turret)
+    const scout = this.variant === 'scout';
+    const deckY = 4.0;
+    this._hitY  = scout ? 2.2 : deckY;
+
+    this._part(new THREE.CylinderGeometry(3.4, 4.0, 1.8, 6), this.group, 0, deckY, 0);      // hull
+    this._part(new THREE.CylinderGeometry(2.4, 3.0, 0.8, 6), this.group, 0, deckY + 1.1, 0); // upper deck
+    this._part(new THREE.BoxGeometry(1.4, 1.2, 1.4), this.group, 0, deckY + 1.9, 0);        // sensor head
+
+    // Six legs — three per side, alternating tripod gait
+    const hipY = deckY - 0.3;
+    let i = 0;
+    for (const side of [-1, 1]) {
+      for (const fz of [3.2, 0, -3.2]) {
+        const leg = this._buildLeg(side * 3.4, hipY, fz, side, (i % 2 === 0) ? 0 : Math.PI);
+        this.group.add(leg.root);
+        this.legs.push(leg);
+        i++;
       }
-      // Three turrets around the upper deck
+    }
+
+    if (scout) {
+      this.turrets.push(this._buildTurret(this.group, 0, deckY + 1.4, 0.6, 1.0)); // single turret
+    } else {
       this.turrets.push(this._buildTurret(this.group,  0.0, deckY + 1.4,  2.4, 1.15));
       this.turrets.push(this._buildTurret(this.group, -2.2, deckY + 1.4, -1.6, 1.05));
       this.turrets.push(this._buildTurret(this.group,  2.2, deckY + 1.4, -1.6, 1.05));
     }
+
+    if (scout) this.group.scale.setScalar(GRIDNOUGHT.scoutScale);
   }
 
   _applyTransform() {
@@ -189,7 +216,6 @@ export default class Gridnought {
     const chase = ctx?.playerTank;
     const foe = ctx?.findHostile ? ctx.findHostile(this, GRIDNOUGHT.range * 2) : chase;
 
-    // Advance on the player (steer the hull toward them, hold at standoff)
     if (chase?.isAlive) {
       const dx = chase.position.x - this.position.x;
       const dz = chase.position.z - this.position.z;
@@ -197,7 +223,7 @@ export default class Gridnought {
       const desired = Math.atan2(dx, dz);
       let hd = ((desired - this.heading + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
       this.heading += Math.sign(hd) * Math.min(Math.abs(hd), GRIDNOUGHT.turnSpeed * delta);
-      const move = dist > GRIDNOUGHT.standoff ? GRIDNOUGHT.speed : 0;
+      const move = dist > this._standoff ? this._speed0 : 0;
       this._speed = move;
       if (move) {
         this.position.x += Math.sin(this.heading) * move * delta;
@@ -214,23 +240,28 @@ export default class Gridnought {
     if (foe?.isAlive) this._updateTurrets(delta, foe, ctx.projectileManager);
   }
 
+  /**
+   * Insect tripod gait: each leg protracts (swings forward) with the foot
+   * lifted, plants, then retracts (sweeps back) with the foot down. The two
+   * tripods alternate, so three feet are always planted.
+   */
   _animateLegs(delta) {
-    const frac = Math.min(1, this._speed / GRIDNOUGHT.speed);
-    this._walkPhase += (0.6 + frac) * delta * 3.2;
-    const k = Math.min(1, 10 * delta);
+    const frac = Math.min(1, this._speed / this._speed0);
+    const act  = 0.28 + frac;                            // a little idle shuffle, more when moving
+    this._walkPhase += (0.5 + frac * 1.4) * delta * 3.4;
+    const k = Math.min(1, 13 * delta);
     for (const leg of this.legs) {
       const ph = this._walkPhase + leg.gait;
-      const swing = Math.sin(ph) * 0.4 * (0.35 + frac);
-      const lift  = Math.max(0, Math.sin(ph)) * 0.5 * (0.35 + frac);
+      const swing = Math.sin(ph) * 0.5 * act;            // fore/aft protraction/retraction
+      const lift  = Math.max(0, Math.cos(ph)) * 0.85 * act; // knee lifts during the forward swing
       leg.hip.rotation.x  += (swing - leg.hip.rotation.x) * k;
-      leg.knee.rotation.x += ((0.2 + lift) - leg.knee.rotation.x) * k;
+      leg.knee.rotation.x += ((0.12 + lift) - leg.knee.rotation.x) * k;
     }
   }
 
   _updateTurrets(delta, foe, projectileManager) {
-    const fc = foe.getHitCenter ? foe.getHitCenter() : { ...foe.position, y: foe.position.y + 0.8 };
+    const fc = foe.getHitCenter ? foe.getHitCenter() : { x: foe.position.x, y: foe.position.y + 0.8, z: foe.position.z };
     for (const t of this.turrets) {
-      // World position of this turret
       const wp = t.pivot.getWorldPosition(new THREE.Vector3());
       const dx = fc.x - wp.x, dz = fc.z - wp.z;
       const dist = Math.hypot(dx, dz);
@@ -271,7 +302,6 @@ export default class Gridnought {
   takeHit(damage = 1) {
     if (!this.isAlive) return false;
     this._hp -= damage;
-    // Brighten toward white as the armour fails
     const t = 1 - Math.max(0, this._hp) / this._maxHp;
     this._wireMat.color.copy(new THREE.Color(this._baseColor).lerp(new THREE.Color(0xffffff), t * 0.7));
     if (this._hp > 0) return false;

@@ -284,6 +284,18 @@ export const GRIDNOUGHT = {
   spawnDist:  95,            // spawns this far out — within its own firing range
   color:      0xff5544,
   bossColor:  0xff2255,
+
+  // Scout walker — a small six-legged tank that spawns as a regular enemy:
+  // lighter than a tank, quick, with a single turret.
+  scoutHp:          3,       // less armour than a medium tank (5)
+  scoutScore:       9,
+  scoutHitRadius:   2.4,
+  scoutMgHits:      2,       // machine-gun soak (thin-skinned)
+  scoutSpeed:       7.5,     // nimble
+  scoutStandoff:    34,
+  scoutScale:       0.55,    // fraction of the heavy hexapod's size
+  scoutCount:       2,       // ambient scouts per run
+  scoutMinSpawnDist: 80,
 };
 
 export const PROJECTILE = {

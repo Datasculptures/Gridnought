@@ -212,6 +212,12 @@ export default function HowToPage({ visible, onBack }) {
     });
     show('GRIDNOUGHT — LANDSHIP · 3 TURRETS · 60 PTS', gnShip, 20, -47, Math.PI, 6.6);
 
+    const gnScout = new Gridnought(scene, {
+      position: { x: 0, z: 0 }, variant: 'scout', terrain: stubTerrain,
+    });
+    show('GRIDNOUGHT — SCOUT WALKER · 1 TURRET · 9 PTS', gnScout, -2, -34, Math.PI, 4.6);
+    walkers.push(gnScout);
+
     // ---- Row 2: ground forces ----
     show('INFANTRY · 1 PT',
       new InfantryUnit(scene, { position: { x: 0, z: 0 }, ...vehicleCfg }), -26, -7, Math.PI, 2.2);

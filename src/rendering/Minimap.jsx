@@ -309,8 +309,9 @@ export default function Minimap({
               ctx.fill();
               break;
             case 'gridnought': {
-              // Heavy war machine / boss: a large red diamond, filled + ringed
-              const s = MINIMAP.tankRadius * 2.0;
+              // War machine: a red diamond — large for the heavy/boss, small
+              // for the scout walker.
+              const s = MINIMAP.tankRadius * (e.variant === 'scout' ? 1.0 : 2.0);
               ctx.fillStyle   = '#ff2255';
               ctx.strokeStyle = '#ffffff';
               ctx.lineWidth   = 1.5;

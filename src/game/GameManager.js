@@ -1037,6 +1037,13 @@ export class GameManager {
         ...base(),
       }));
     }
+    for (let i = 0; i < GRIDNOUGHT.scoutCount; i++) {
+      this.entityManager.add(new Gridnought(this.scene, {
+        position: this._makeVehicleSpawnPos(null, GRIDNOUGHT.scoutMinSpawnDist),
+        variant: 'scout',
+        terrain: this.terrain,
+      }));
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1145,6 +1152,8 @@ export class GameManager {
     // Destroyed vehicles come back elsewhere after a delay
     if (e.kind === 'truck' || e.kind === 'apc' || e.kind === 'jammer') {
       this._respawnQueue.push({ kind: e.kind, timer: ENDLESS.respawnDelay });
+    } else if (e.kind === 'gridnought' && e.variant === 'scout') {
+      this._respawnQueue.push({ kind: 'scout', timer: ENDLESS.respawnDelay });
     }
   }
 
@@ -1207,6 +1216,10 @@ export class GameManager {
         }));
       } else if (entry.kind === 'jammer') {
         this.entityManager.add(new JammerTruck(this.scene, { position: pos, ...base }));
+      } else if (entry.kind === 'scout') {
+        this.entityManager.add(new Gridnought(this.scene, {
+          position: pos, variant: 'scout', terrain: this.terrain,
+        }));
       }
     }
   }
