@@ -95,8 +95,8 @@ export default class ObstacleManager {
         obstacles.push(new TemplateBuilding(this.scene, {
           template, position: desc.position, rotation: desc.rotation, terrain: this.terrain,
         }));
-        // Damaged buildings are held by defenders, just like the old ruins —
-        // GameManager garrisons anything recorded here on chunk load.
+        // Damaged buildings are held by defenders — GameManager garrisons
+        // anything recorded here on chunk load.
         if (template.damaged) {
           this.ruins.push({ x: desc.position.x, z: desc.position.z, floors: [] });
         }

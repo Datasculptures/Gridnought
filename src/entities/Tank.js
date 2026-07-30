@@ -536,8 +536,8 @@ export default class Tank {
       }
     }
 
-    // (The player machine gun was removed — X is the drone strike now.
-    //  Enemy infantry and APCs keep their own MG, fired from their classes.)
+    // The player has no machine gun; X triggers the drone strike instead.
+    // Enemy infantry and APCs fire their own MG from their own classes.
 
     // 12. Turret aiming
     let aimPoint = null;

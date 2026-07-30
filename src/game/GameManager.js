@@ -307,8 +307,8 @@ export class GameManager {
       // Jammer flicker effect
       this._updateJammerEffect(delta);
 
-      // Hide anything past the terrain horizon — distant units used to hang
-      // in empty sky where no ground is drawn
+      // Hide anything past the terrain horizon so distant units don't
+      // hang in empty sky where no ground is drawn
       this._updateHorizonVisibility();
 
       this.projectileManager.update(delta);

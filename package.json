@@ -2,6 +2,8 @@
   "name": "gridnought",
   "private": true,
   "version": "0.1.0",
+  "description": "A wireframe vector tank-combat game built with Three.js, React, and Tauri.",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
