@@ -41,3 +41,6 @@ src-tauri/target/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Machine-specific Cargo config (local build-artifact path)
+src-tauri/.cargo/config.toml
